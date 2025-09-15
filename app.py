@@ -1,10 +1,11 @@
 from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
 from helpers.functions.plot_utils import plot_single_claim_lifetime
 from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary, analyze_claims_with_caching
-from helpers.functions.ml_models import ClaimStatusBaselineModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix
+from helpers.functions.ml_models import ClaimStatusBaselineModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix, plot_prediction_comparison, plot_prediction_confidence_analysis, get_open_claims_for_prediction
 import pandas as pd
 import streamlit as st
 import os
+import matplotlib.pyplot as plt
 from helpers.functions.notes_utils import NotesReviewerAgent
 
 # Set page config
@@ -107,7 +108,7 @@ st.sidebar.markdown("🔍 Portfolio Filters")
 selected_cause = st.sidebar.selectbox("Select Claim Cause", ['ALL', *df_raw_txn['clmCause'].dropna().unique()])
 
 st.sidebar.markdown("🔍 Claim Search")
-claim_filter = st.sidebar.selectbox("Filter by Claim Number (optional)", [*df_raw_txn[df_raw_txn['clmCause']==selected_cause]['clmNum'].unique()], help="Enter a claim number to filter data, leave blank to show all")
+claim_filter = st.sidebar.text_input("Filter by Claim Number (optional)", placeholder="Enter claim number...", help="Enter a claim number to filter data, leave blank to show all")
 
 st.sidebar.markdown("🔍 NLP Analysis Filters")
 # Show info about NLP eligible claims
@@ -331,6 +332,108 @@ with nlp_tab4:
             st.subheader("🔄 Confusion Matrix")
             fig_cm = plot_confusion_matrix(results['confusion_matrix'], results['class_names'])
             st.pyplot(fig_cm)
+
+            # Prediction comparison visualization
+            st.subheader("📊 Prediction Analysis")
+
+            # Get test set predictions for comparison
+            if 'test_actual' in results and 'test_predicted' in results:
+                test_actual = results['test_actual']
+                test_predicted = results['test_predicted']
+            else:
+                # If not stored, we'll skip this visualization
+                test_actual = None
+                test_predicted = None
+
+            # Get open claims for prediction
+            open_claims_df = get_open_claims_for_prediction(df_raw_final)
+
+            if len(open_claims_df) > 0:
+                st.write(f"**Found {len(open_claims_df)} open claims for prediction**")
+
+                # Get NLP features for open claims
+                open_nlp_features = nlp_features_df[nlp_features_df['clmNum'].isin(open_claims_df['clmNum'])]
+
+                if len(open_nlp_features) > 0:
+                    try:
+                        # Make predictions on open claims
+                        open_predictions = st.session_state.baseline_model.predict(open_nlp_features, open_claims_df)
+
+                        # Merge with claim information
+                        open_results = open_predictions.merge(
+                            open_claims_df[['clmNum', 'clmStatus', 'clmCause']],
+                            on='clmNum',
+                            how='left'
+                        )
+
+                        # Create comparison visualization
+                        if test_actual is not None and test_predicted is not None:
+                            fig_comparison = plot_prediction_comparison(
+                                test_actual,
+                                test_predicted,
+                                open_predictions['predicted_status']
+                            )
+                        else:
+                            # Create simplified visualization with just open predictions
+                            open_pred_counts = open_predictions['predicted_status'].value_counts()
+                            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+                            ax.pie(open_pred_counts.values, labels=open_pred_counts.index, autopct='%1.1f%%')
+                            ax.set_title('Open Claims - Predicted Status Distribution')
+                            fig_comparison = fig
+
+                        st.pyplot(fig_comparison)
+
+                        # Confidence analysis
+                        st.subheader("🎯 Prediction Confidence Analysis")
+                        fig_confidence = plot_prediction_confidence_analysis(open_predictions)
+                        st.pyplot(fig_confidence)
+
+                        # Display detailed predictions
+                        st.subheader("📋 Open Claims Predictions")
+
+                        # Summary metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            avg_confidence = open_predictions['prediction_confidence'].mean()
+                            st.metric("Average Confidence", f"{avg_confidence:.2f}")
+                        with col2:
+                            high_conf_count = (open_predictions['prediction_confidence'] > 0.8).sum()
+                            st.metric("High Confidence (>80%)", high_conf_count)
+                        with col3:
+                            pred_paid = (open_predictions['predicted_status'] == 'PAID').sum()
+                            st.metric("Predicted PAID", pred_paid)
+                        with col4:
+                            pred_denied = (open_predictions['predicted_status'] == 'DENIED').sum()
+                            st.metric("Predicted DENIED", pred_denied)
+
+                        # Detailed predictions table
+                        display_cols = ['clmNum', 'clmStatus', 'clmCause', 'predicted_status',
+                                       'prediction_confidence', 'prob_PAID', 'prob_DENIED', 'prob_CLOSED']
+                        available_cols = [col for col in display_cols if col in open_results.columns]
+
+                        # Sort by confidence descending
+                        open_results_sorted = open_results.sort_values('prediction_confidence', ascending=False)
+
+                        st.dataframe(
+                            open_results_sorted[available_cols],
+                            use_container_width=True
+                        )
+
+                        # Download option for predictions
+                        csv = open_results_sorted.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Open Claims Predictions",
+                            data=csv,
+                            file_name=f"open_claims_predictions_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.csv",
+                            mime="text/csv"
+                        )
+
+                    except Exception as e:
+                        st.error(f"Error predicting open claims: {str(e)}")
+                else:
+                    st.warning("No NLP features found for open claims")
+            else:
+                st.info("No open claims found for prediction")
 
             # Model predictions on current data
             if st.session_state.baseline_model is not None:

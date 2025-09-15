@@ -181,7 +181,9 @@ class ClaimStatusBaselineModel:
                 output_dict=True
             ),
             'confusion_matrix': confusion_matrix(y_test, test_pred),
-            'class_names': self.label_encoder.classes_
+            'class_names': self.label_encoder.classes_,
+            'test_actual': self.label_encoder.inverse_transform(y_test),
+            'test_predicted': self.label_encoder.inverse_transform(test_pred)
         }
 
         print(f"Training completed!")
@@ -351,6 +353,118 @@ def plot_confusion_matrix(confusion_matrix, class_names):
     plt.tight_layout()
 
     return plt.gcf()
+
+def plot_prediction_comparison(test_actual, test_predicted, real_predictions=None):
+    """
+    Plot comparison between test predictions and real data predictions
+
+    Args:
+        test_actual: Actual labels from test set
+        test_predicted: Predicted labels from test set
+        real_predictions: Predictions on real/open claims (optional)
+    """
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+    # Test set actual distribution
+    test_actual_counts = pd.Series(test_actual).value_counts()
+    axes[0].pie(test_actual_counts.values, labels=test_actual_counts.index, autopct='%1.1f%%')
+    axes[0].set_title('Test Set - Actual Status Distribution')
+
+    # Test set predicted distribution
+    test_pred_counts = pd.Series(test_predicted).value_counts()
+    axes[1].pie(test_pred_counts.values, labels=test_pred_counts.index, autopct='%1.1f%%')
+    axes[1].set_title('Test Set - Predicted Status Distribution')
+
+    # Real predictions distribution (if provided)
+    if real_predictions is not None:
+        real_pred_counts = real_predictions.value_counts()
+        axes[2].pie(real_pred_counts.values, labels=real_pred_counts.index, autopct='%1.1f%%')
+        axes[2].set_title('Open Claims - Predicted Status Distribution')
+    else:
+        axes[2].text(0.5, 0.5, 'No open claims\npredictions available',
+                    horizontalalignment='center', verticalalignment='center',
+                    transform=axes[2].transAxes, fontsize=14)
+        axes[2].set_title('Open Claims - Predicted Status Distribution')
+
+    plt.tight_layout()
+    return fig
+
+def plot_prediction_confidence_analysis(predictions_df, status_col='predicted_status', confidence_col='prediction_confidence'):
+    """
+    Plot prediction confidence analysis
+
+    Args:
+        predictions_df: DataFrame with predictions and confidence scores
+        status_col: Column name for predicted status
+        confidence_col: Column name for prediction confidence
+    """
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+
+    # Confidence distribution by predicted status
+    for i, status in enumerate(predictions_df[status_col].unique()):
+        status_data = predictions_df[predictions_df[status_col] == status]
+        axes[0, 0].hist(status_data[confidence_col], alpha=0.6, label=status, bins=20)
+    axes[0, 0].set_xlabel('Prediction Confidence')
+    axes[0, 0].set_ylabel('Count')
+    axes[0, 0].set_title('Confidence Distribution by Predicted Status')
+    axes[0, 0].legend()
+
+    # Box plot of confidence by status
+    status_confidence = []
+    status_labels = []
+    for status in predictions_df[status_col].unique():
+        status_data = predictions_df[predictions_df[status_col] == status]
+        status_confidence.append(status_data[confidence_col].values)
+        status_labels.append(status)
+
+    axes[0, 1].boxplot(status_confidence, labels=status_labels)
+    axes[0, 1].set_ylabel('Prediction Confidence')
+    axes[0, 1].set_title('Confidence Distribution by Status (Box Plot)')
+    axes[0, 1].tick_params(axis='x', rotation=45)
+
+    # Confidence vs prediction count
+    conf_bins = pd.cut(predictions_df[confidence_col], bins=10)
+    conf_counts = conf_bins.value_counts().sort_index()
+    axes[1, 0].bar(range(len(conf_counts)), conf_counts.values)
+    axes[1, 0].set_xlabel('Confidence Bins')
+    axes[1, 0].set_ylabel('Number of Predictions')
+    axes[1, 0].set_title('Prediction Count by Confidence Level')
+
+    # High confidence predictions summary
+    high_conf = predictions_df[predictions_df[confidence_col] > 0.8]
+    if len(high_conf) > 0:
+        high_conf_counts = high_conf[status_col].value_counts()
+        axes[1, 1].pie(high_conf_counts.values, labels=high_conf_counts.index, autopct='%1.1f%%')
+        axes[1, 1].set_title(f'High Confidence Predictions (>80%)\nTotal: {len(high_conf)} claims')
+    else:
+        axes[1, 1].text(0.5, 0.5, 'No high confidence\npredictions (>80%)',
+                       horizontalalignment='center', verticalalignment='center',
+                       transform=axes[1, 1].transAxes, fontsize=12)
+        axes[1, 1].set_title('High Confidence Predictions (>80%)')
+
+    plt.tight_layout()
+    return fig
+
+def get_open_claims_for_prediction(claims_df):
+    """
+    Get open claims that should be predicted
+
+    Args:
+        claims_df: Claims DataFrame
+
+    Returns:
+        DataFrame with open claims
+    """
+    # Define open claim statuses
+    open_statuses = ['OPEN', 'ESTABLISHED', 'INITIAL_REVIEW', 'FUTURE_PAY_POTENTIAL']
+
+    # Filter for open claims
+    open_claims = claims_df[claims_df['clmStatus'].isin(open_statuses)]
+
+    print(f"Found {len(open_claims)} open claims for prediction")
+    print(f"Open status breakdown: {open_claims['clmStatus'].value_counts().to_dict()}")
+
+    return open_claims
 
 if __name__ == "__main__":
     # Example usage
