@@ -36,6 +36,7 @@ class ClaimStatusBaselineModel:
     def prepare_features(self, nlp_features_df: pd.DataFrame, claims_df: pd.DataFrame) -> pd.DataFrame:
         """
         Prepare features for training by merging NLP features with claim status.
+        Creates granular target classes: PAID/CLOSED/DENIED with _REOPENED suffix for reopened claims.
 
         Args:
             nlp_features_df: DataFrame with NLP features
@@ -45,7 +46,7 @@ class ClaimStatusBaselineModel:
             DataFrame ready for training
         """
         # Get available financial columns
-        financial_cols = ['clmNum', 'clmStatus', 'clmCause']
+        financial_cols = ['clmNum', 'clmStatus', 'clmCause', 'dateReopened']
         available_financial = []
         for col in ['current_incurred', 'current_paid', 'current_expense', 'incurred_cumsum', 'paid_cumsum', 'expense_cumsum']:
             if col in claims_df.columns:
@@ -63,12 +64,25 @@ class ClaimStatusBaselineModel:
         # Remove rows with missing target
         merged_df = merged_df.dropna(subset=['clmStatus'])
 
-        # Filter to eligible statuses only
-        eligible_statuses = ['PAID', 'DENIED', 'CLOSED', 'INITIAL_REVIEW']
-        merged_df = merged_df[merged_df['clmStatus'].isin(eligible_statuses)]
+        # Filter to training eligible statuses only (exclude INITIAL_REVIEW)
+        training_statuses = ['PAID', 'DENIED', 'CLOSED']
+        merged_df = merged_df[merged_df['clmStatus'].isin(training_statuses)]
+
+        # Create granular target classes based on reopened status
+        def create_granular_status(row):
+            base_status = row['clmStatus']
+            is_reopened = pd.notna(row['dateReopened'])
+
+            if is_reopened:
+                return f"{base_status}_REOPENED"
+            else:
+                return base_status
+
+        merged_df['granular_status'] = merged_df.apply(create_granular_status, axis=1)
 
         print(f"Prepared dataset with {len(merged_df)} samples")
-        print(f"Status distribution:\n{merged_df['clmStatus'].value_counts()}")
+        print(f"Original status distribution:\n{merged_df['clmStatus'].value_counts()}")
+        print(f"Granular status distribution:\n{merged_df['granular_status'].value_counts()}")
 
         return merged_df
 
@@ -127,7 +141,7 @@ class ClaimStatusBaselineModel:
 
         # Prepare X and y
         X = df[self.feature_columns].fillna(0)  # Fill NaN with 0
-        y = df['clmStatus']
+        y = df['granular_status']  # Use granular status as target
 
         # Encode labels
         y_encoded = self.label_encoder.fit_transform(y)
@@ -447,7 +461,7 @@ def plot_prediction_confidence_analysis(predictions_df, status_col='predicted_st
 
 def get_open_claims_for_prediction(claims_df):
     """
-    Get open claims that should be predicted
+    Get open claims that should be predicted (including INITIAL_REVIEW)
 
     Args:
         claims_df: Claims DataFrame
@@ -455,7 +469,7 @@ def get_open_claims_for_prediction(claims_df):
     Returns:
         DataFrame with open claims
     """
-    # Define open claim statuses
+    # Define open claim statuses (now including INITIAL_REVIEW)
     open_statuses = ['OPEN', 'ESTABLISHED', 'INITIAL_REVIEW', 'FUTURE_PAY_POTENTIAL']
 
     # Filter for open claims
@@ -463,6 +477,7 @@ def get_open_claims_for_prediction(claims_df):
 
     print(f"Found {len(open_claims)} open claims for prediction")
     print(f"Open status breakdown: {open_claims['clmStatus'].value_counts().to_dict()}")
+    print("Note: INITIAL_REVIEW claims are now included in open claims prediction")
 
     return open_claims
 

@@ -110,22 +110,42 @@ selected_cause = st.sidebar.selectbox("Select Claim Cause", ['ALL', *df_raw_txn[
 st.sidebar.markdown("🔍 Claim Search")
 claim_filter = st.sidebar.text_input("Filter by Claim Number (optional)", placeholder="Enter claim number...", help="Enter a claim number to filter data, leave blank to show all")
 
-st.sidebar.markdown("🔍 NLP Analysis Filters")
-# Show info about NLP eligible claims
-final_status_filter = df_raw_final['clmStatus'].isin(['PAID', 'DENIED', 'CLOSED'])
-initial_review_reopened = (df_raw_final['clmStatus'] == 'INITIAL_REVIEW') & (df_raw_final['dateReopened'].notna())
-eligible_claims_df = df_raw_final[final_status_filter | initial_review_reopened]
+st.sidebar.markdown("🔍 ML Training Data")
+# Show info about training eligible claims (no INITIAL_REVIEW)
+training_status_filter = df_raw_final['clmStatus'].isin(['PAID', 'DENIED', 'CLOSED'])
+training_eligible_df = df_raw_final[training_status_filter]
+
+# Calculate granular classes for display
+training_reopened = training_eligible_df['dateReopened'].notna()
+paid_count = (training_eligible_df['clmStatus'] == 'PAID').sum()
+paid_reopened_count = ((training_eligible_df['clmStatus'] == 'PAID') & training_reopened).sum()
+denied_count = (training_eligible_df['clmStatus'] == 'DENIED').sum()
+denied_reopened_count = ((training_eligible_df['clmStatus'] == 'DENIED') & training_reopened).sum()
+closed_count = (training_eligible_df['clmStatus'] == 'CLOSED').sum()
+closed_reopened_count = ((training_eligible_df['clmStatus'] == 'CLOSED') & training_reopened).sum()
 
 st.sidebar.info(f"""
-**NLP Analysis Criteria:**
-- PAID/DENIED/CLOSED: All claims
-- INITIAL_REVIEW: Only if reopened
+**Training Target Classes:**
+- PAID: {paid_count - paid_reopened_count:,} | PAID_REOPENED: {paid_reopened_count:,}
+- DENIED: {denied_count - denied_reopened_count:,} | DENIED_REOPENED: {denied_reopened_count:,}
+- CLOSED: {closed_count - closed_reopened_count:,} | CLOSED_REOPENED: {closed_reopened_count:,}
 
-**Eligible Claims:** {len(eligible_claims_df):,}
-- PAID: {(eligible_claims_df['clmStatus'] == 'PAID').sum():,}
-- DENIED: {(eligible_claims_df['clmStatus'] == 'DENIED').sum():,}
-- CLOSED: {(eligible_claims_df['clmStatus'] == 'CLOSED').sum():,}
-- INITIAL_REVIEW (reopened): {((eligible_claims_df['clmStatus'] == 'INITIAL_REVIEW') & (eligible_claims_df['dateReopened'].notna())).sum():,}
+**Total Training Data:** {len(training_eligible_df):,} claims
+""")
+
+st.sidebar.markdown("🔮 Open Claims for Prediction")
+# Show open claims info
+open_statuses = ['OPEN', 'ESTABLISHED', 'INITIAL_REVIEW', 'FUTURE_PAY_POTENTIAL']
+open_claims_df = df_raw_final[df_raw_final['clmStatus'].isin(open_statuses)]
+
+st.sidebar.info(f"""
+**Open Claims to Predict:**
+- OPEN: {(open_claims_df['clmStatus'] == 'OPEN').sum():,}
+- ESTABLISHED: {(open_claims_df['clmStatus'] == 'ESTABLISHED').sum():,}
+- INITIAL_REVIEW: {(open_claims_df['clmStatus'] == 'INITIAL_REVIEW').sum():,}
+- FUTURE_PAY_POTENTIAL: {(open_claims_df['clmStatus'] == 'FUTURE_PAY_POTENTIAL').sum():,}
+
+**Total Open Claims:** {len(open_claims_df):,}
 """)
 
 # Panel to visualize the lifetime of a claim at the center of the screen
