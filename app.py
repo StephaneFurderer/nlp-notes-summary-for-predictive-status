@@ -4,16 +4,36 @@ import pandas as pd
 import streamlit as st
 from helpers.functions.notes_utils import NotesReviewerAgent
 
+@st.cache_data
+def cached_load_data(report_date=None):
+    """Cached wrapper for load_data function"""
+    return load_data(report_date)
+
+@st.cache_data
+def cached_calculate_claim_features(df_hash):
+    """Cached wrapper for calculate_claim_features function"""
+    # Note: We pass a hash instead of the dataframe directly for caching
+    # The actual dataframe will be loaded from the main cached_load_data
+    df_raw_txn, _, _, _, _, _, _, _ = cached_load_data(None)
+    return calculate_claim_features(df_raw_txn)
+
+@st.cache_data
+def cached_load_notes():
+    """Cached wrapper for notes loading"""
+    agent = NotesReviewerAgent()
+    return agent.import_notes(), agent
+
 st.title("NLP Notes Summary for Predictive Status")
 report_date = st.sidebar.date_input("Report Date", value=None, help="Select the date of the report that would consider that any claims not closed by that date is still open and any claims closed and not reopened is closed")
 
 if report_date is not None:
     report_date = pd.Timestamp(report_date)
 
-# get timeseries data
-df_raw_txn,closed_txn,open_txn,paid_txn,df_raw_final,closed_final,paid_final,open_final = load_data(report_date)
+# get timeseries data (cached)
+df_raw_txn,closed_txn,open_txn,paid_txn,df_raw_final,closed_final,paid_final,open_final = cached_load_data(report_date)
 
-all_claim_metrics_df,summary_all_stats,display_all_claims_metrics_df  = calculate_claim_features(df_raw_txn)
+# calculate claim features (cached)
+all_claim_metrics_df,summary_all_stats,display_all_claims_metrics_df = cached_calculate_claim_features(str(report_date))
 
 # get claim id
 st.sidebar.markdown("------")
@@ -44,9 +64,8 @@ if claim_filter.strip() and len(claim_filter) > 0:
     st.write(f"Shape: {all_claim_metrics_df_filtered.shape[0]:,} rows x {all_claim_metrics_df_filtered.shape[1]} columns")
     st.dataframe(all_claim_metrics_df_filtered, use_container_width=True)
 
-# get notes
-agent = NotesReviewerAgent()
-notes_df = agent.import_notes()
+# get notes (cached)
+notes_df, agent = cached_load_notes()
 
 claim_notes = agent.get_notes_by_claim(claim_filter)
 st.metric("Total Notes", len(claim_notes))
