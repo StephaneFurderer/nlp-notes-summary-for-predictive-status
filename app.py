@@ -1,4 +1,5 @@
-from helpers.functions.data_utils import load_data
+from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
+from helpers.functions.plot_utils import plot_single_claim_lifetime
 import pandas as pd
 import streamlit as st
 from helpers.functions.notes_utils import NotesReviewerAgent
@@ -12,14 +13,36 @@ if report_date is not None:
 # get timeseries data
 df_raw_txn,closed_txn,open_txn,paid_txn,df_raw_final,closed_final,paid_final,open_final = load_data(report_date)
 
+all_claim_metrics_df,summary_all_stats,display_all_claims_metrics_df  = calculate_claim_features(df_raw_txn)
+
 # get claim id
 st.sidebar.markdown("------")
 st.sidebar.markdown("🔍 Portfolio Filters")
 selected_cause = st.sidebar.selectbox("Select Claim Cause", ['ALL', *df_raw_txn['clmCause'].dropna().unique()])
 
 st.sidebar.markdown("🔍 Claim Search")
-claim_filter = st.sidebar.text_input("Filter by Claim Number (optional)", [*df_raw_txn[df_raw_txn['clmCause']==selected_cause]['clmNum'].unique()], help="Enter a claim number to filter data, leave blank to show all")
+claim_filter = st.sidebar.selectbox("Filter by Claim Number (optional)", [*df_raw_txn[df_raw_txn['clmCause']==selected_cause]['clmNum'].unique()], help="Enter a claim number to filter data, leave blank to show all")
 
+# Panel to visualize the lifetime of a claim at the center of the screen
+st.markdown("--")
+st.markdown("## 📈 Claim Lifetime")
+if claim_filter.strip() and len(claim_filter) > 0:
+    df_raw_txn_filtered = _filter_by_(df_raw_txn,'clmNum',claim_filter) #df_raw_txn[df_raw_txn['clmNum'].str.contains(claim_filter.strip(), case=False, na=False)]
+    df_raw_final_filtered = _filter_by_(df_raw_final,'clmNum',claim_filter) #df_raw_final[df_raw_final['clmNum'].str.contains(claim_filter.strip(), case=False, na=False)]
+    all_claim_metrics_df_filtered = _filter_by_(all_claim_metrics_df,'clmNum',claim_filter) #all_claim_metrics_df[all_claim_metrics_df['clmNum'].str.contains(claim_filter.strip(), case=False, na=False)]
+    plot_single_claim_lifetime(df_raw_txn,claim_filter)
+    # Display dataframes
+    st.write("### Transactions")
+    st.write(f"Shape: {df_raw_txn_filtered.shape[0]:,} rows x {df_raw_txn_filtered.shape[1]} columns")
+    st.dataframe(df_raw_txn_filtered,use_container_width=True)
+
+    st.write("### Final Status")
+    st.write(f"Shape: {df_raw_final_filtered.shape[0]:,} rows x {df_raw_final_filtered.shape[1]} columns")
+    st.dataframe(df_raw_final_filtered[["clmCause","booknum","cidpol","clmNum","clmStatus","dateCompleted","dateReopened","paid_cumsum","expense_cumsum","incurred_cumsum"]],use_container_width=True)
+
+    st.write("### Features ")
+    st.write(f"Shape: {all_claim_metrics_df_filtered.shape[0]:,} rows x {all_claim_metrics_df_filtered.shape[1]} columns")
+    st.dataframe(all_claim_metrics_df_filtered, use_container_width=True)
 
 # get notes
 agent = NotesReviewerAgent()

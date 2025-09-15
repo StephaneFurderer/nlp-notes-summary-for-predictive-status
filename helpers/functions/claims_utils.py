@@ -3,6 +3,122 @@ import numpy as np
 import os
 
 
+
+def calculate_claim_features(df_open_txn):
+    """ Calculate the comprehensive metrics for claims with the transaction data"""
+    if len(df_open_txn) > 0:
+        # Calculate comprehensive metrics for open claims (same as closed/paid claims)
+        open_claims_metrics = []
+        
+        # Get the full transaction data for open claims of the selected cause
+        open_claims_full_data = df_open_txn.sort_values(by=['clmNum','datetxn']).copy()
+        
+        for claim_num in open_claims_full_data['clmNum'].unique():
+            # Get full transaction history for this claim
+            claim_data = open_claims_full_data[open_claims_full_data['clmNum'] == claim_num].copy().sort_values(by=['clmNum','datetxn'])
+            
+            if len(claim_data) > 0:
+                # Basic metrics
+                num_transactions = len(claim_data)
+                days_since_first_txn = (claim_data['datetxn'].max() - claim_data['datetxn'].min()).days
+                
+                # Time to first payment/expense
+                first_paid_idx = claim_data['paid_cumsum'].gt(0).idxmax() if claim_data['paid_cumsum'].gt(0).any() else -1
+                first_expense_idx = claim_data['expense_cumsum'].gt(0).idxmax() if claim_data['expense_cumsum'].gt(0).any() else -1
+                
+                if first_paid_idx != -1:
+                    time_to_first_paid = (claim_data.loc[first_paid_idx, 'datetxn'] - claim_data['datetxn'].min()).days
+                else:
+                    time_to_first_paid = days_since_first_txn
+                    
+                if first_expense_idx != -1:
+                    time_to_first_expense = (claim_data.loc[first_expense_idx, 'datetxn'] - claim_data['datetxn'].min()).days
+                else:
+                    time_to_first_expense = days_since_first_txn
+                
+                # Transaction counts
+                num_expense_txns = (claim_data['expense'] > 0).sum()
+                num_paid_txns = (claim_data['paid'] > 0).sum()
+                
+                # Average amounts
+                avg_expense_amount = claim_data['expense_cumsum'].iloc[-1] / max(num_expense_txns, 1)
+                avg_paid_amount = claim_data['paid_cumsum'].iloc[-1] / max(num_paid_txns, 1)
+                
+                # Change metrics (excluding zero changes)
+                reserve_changes = claim_data[claim_data['reserve_change'] != 0]['reserve_change']
+                incurred_changes = claim_data[claim_data['incurred_change'] != 0]['incurred_change']
+                
+                avg_reserve_change = reserve_changes.mean() if len(reserve_changes) > 0 else 0
+                avg_incurred_change = incurred_changes.mean() if len(incurred_changes) > 0 else 0
+                
+                # Current amounts (from final transaction)
+                current_reserve = claim_data['reserve_cumsum'].iloc[-1]
+                current_incurred = claim_data['incurred_cumsum'].iloc[-1]
+                current_paid = claim_data['paid_cumsum'].iloc[-1]
+                current_expense = claim_data['expense_cumsum'].iloc[-1]
+                
+                # Ratios
+                paid_to_incurred_ratio = current_paid / max(current_incurred, 1)
+                expense_to_incurred_ratio = current_expense / max(current_incurred, 1)
+                
+                # Development stage (max 5 years = 1825 days)
+                development_stage = min(days_since_first_txn / 1825, 1.0)
+                
+                open_claims_metrics.append({
+                    'clmNum': claim_num,
+                    'clmStatus': claim_data['clmStatus'].iloc[-1],  # Use final status
+                    'clmCause': claim_data['clmCause'].iloc[0],  # First occurrence per claim
+                    'num_transactions': num_transactions,
+                    'days_since_first_txn': days_since_first_txn,
+                    'time_to_first_paid': time_to_first_paid,
+                    'time_to_first_expense': time_to_first_expense,
+                    'num_expense_txns': num_expense_txns,
+                    'num_paid_txns': num_paid_txns,
+                    'avg_expense_amount': avg_expense_amount,
+                    'avg_paid_amount': avg_paid_amount,
+                    'avg_reserve_change': avg_reserve_change,
+                    'avg_incurred_change': avg_incurred_change,
+                    'current_reserve': current_reserve,
+                    'current_incurred': current_incurred,
+                    'current_paid': current_paid,
+                    'current_expense': current_expense,
+                    'current_cashflow': current_paid + current_expense,  # Add current cashflow
+                    'paid_to_incurred_ratio': paid_to_incurred_ratio,
+                    'expense_to_incurred_ratio': expense_to_incurred_ratio,
+                    'development_stage': development_stage,  # Add development stage
+                    'dateReopened': claim_data['dateReopened'].iloc[-1] if 'dateReopened' in claim_data.columns else None,
+                    'isReopened': 1 if pd.notna(claim_data['dateReopened'].iloc[-1]) else 0
+                })
+        
+        # Create comprehensive open claims summary
+        open_claim_metrics_df = pd.DataFrame(open_claims_metrics)
+        
+        # Display summary statistics
+        #st.write("**📊 Open Claims Summary Statistics**")
+        summary_cols = ['num_transactions', 'days_since_first_txn', 'num_expense_txns', 'num_paid_txns', 
+                        'current_reserve', 'current_incurred', 'current_paid', 'current_expense']
+        
+        summary_open_stats = open_claim_metrics_df.groupby(['clmCause','clmStatus'])[summary_cols].describe()
+        #st.dataframe(summary_stats, use_container_width=True)
+        
+        # Display detailed metrics for each claim
+        #st.write("**📋 Detailed Open Claims Metrics**")
+        display_cols = ['clmCause','clmNum','num_transactions', 'days_since_first_txn', 'num_expense_txns', 
+                        'num_paid_txns', 'current_reserve', 'current_incurred', 'current_paid', 'current_expense', 'current_cashflow']
+        display_claim_metrics_df = open_claim_metrics_df[display_cols].copy()
+        display_claim_metrics_df.columns = ['Claim Clause','Claim Number','Transactions', 'Days Since First Txn', 'Expense Txns', 
+                                'Paid Txns', 'Current Reserve', 'Current Incurred', 'Current Paid', 'Current Expense', 'Current Cashflow']
+        #st.dataframe(display_df, use_container_width=True)
+        return open_claim_metrics_df,summary_open_stats,display_claim_metrics_df
+    else:
+        # Return empty DataFrames when there are no open claims
+        empty_df = pd.DataFrame()
+        empty_summary = pd.DataFrame()
+        empty_display = pd.DataFrame()
+        return empty_df, empty_summary, empty_display   
+
+def _filter_by_(df,col,value):
+    return df[df[col].str.contains(value.strip(), case=False, na=False)]
 # Identify the main amounts: reserve, paid, expense
 def calculate_claim_amounts(df):
     """ Calculate the main amounts: reserve, paid, expense """
