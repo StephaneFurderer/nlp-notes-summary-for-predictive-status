@@ -368,6 +368,12 @@ class ClaimStatusEnhancedModel(ClaimStatusBaselineModel):
             'pm', 'am', 'today', 'yesterday', 'tomorrow', 'monday', 'tuesday',
             'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
 
+            # Function words and generic terms that appear as false positives
+            'has', 'our', 'null', 'there', 'subject', 'role', 'this', 'that',
+            'with', 'from', 'they', 'them', 'their', 'these', 'those',
+            'been', 'have', 'had', 'was', 'were', 'are', 'the', 'and',
+            'for', 'but', 'not', 'you', 'all', 'any', 'can', 'had',
+
             # Auto/vehicle specific terms to remove (not relevant for property liability)
             'salvage', 'salvaged', 'total', 'totaled', 'totalling',
             'auto', 'vehicle', 'car', 'truck', 'motorcycle', 'collision',
