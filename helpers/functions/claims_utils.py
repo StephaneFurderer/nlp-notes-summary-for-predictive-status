@@ -1,121 +1,169 @@
 import pandas as pd
 import numpy as np
 import os
+import hashlib
 
 
 
-def calculate_claim_features(df_open_txn):
-    """ Calculate the comprehensive metrics for claims with the transaction data"""
-    if len(df_open_txn) > 0:
-        # Calculate comprehensive metrics for open claims (same as closed/paid claims)
-        open_claims_metrics = []
-        
-        # Get the full transaction data for open claims of the selected cause
-        open_claims_full_data = df_open_txn.sort_values(by=['clmNum','datetxn']).copy()
-        
-        for claim_num in open_claims_full_data['clmNum'].unique():
-            # Get full transaction history for this claim
-            claim_data = open_claims_full_data[open_claims_full_data['clmNum'] == claim_num].copy().sort_values(by=['clmNum','datetxn'])
-            
-            if len(claim_data) > 0:
-                # Basic metrics
-                num_transactions = len(claim_data)
-                days_since_first_txn = (claim_data['datetxn'].max() - claim_data['datetxn'].min()).days
-                
-                # Time to first payment/expense
-                first_paid_idx = claim_data['paid_cumsum'].gt(0).idxmax() if claim_data['paid_cumsum'].gt(0).any() else -1
-                first_expense_idx = claim_data['expense_cumsum'].gt(0).idxmax() if claim_data['expense_cumsum'].gt(0).any() else -1
-                
-                if first_paid_idx != -1:
-                    time_to_first_paid = (claim_data.loc[first_paid_idx, 'datetxn'] - claim_data['datetxn'].min()).days
-                else:
-                    time_to_first_paid = days_since_first_txn
-                    
-                if first_expense_idx != -1:
-                    time_to_first_expense = (claim_data.loc[first_expense_idx, 'datetxn'] - claim_data['datetxn'].min()).days
-                else:
-                    time_to_first_expense = days_since_first_txn
-                
-                # Transaction counts
-                num_expense_txns = (claim_data['expense'] > 0).sum()
-                num_paid_txns = (claim_data['paid'] > 0).sum()
-                
-                # Average amounts
-                avg_expense_amount = claim_data['expense_cumsum'].iloc[-1] / max(num_expense_txns, 1)
-                avg_paid_amount = claim_data['paid_cumsum'].iloc[-1] / max(num_paid_txns, 1)
-                
-                # Change metrics (excluding zero changes)
-                reserve_changes = claim_data[claim_data['reserve_change'] != 0]['reserve_change']
-                incurred_changes = claim_data[claim_data['incurred_change'] != 0]['incurred_change']
-                
-                avg_reserve_change = reserve_changes.mean() if len(reserve_changes) > 0 else 0
-                avg_incurred_change = incurred_changes.mean() if len(incurred_changes) > 0 else 0
-                
-                # Current amounts (from final transaction)
-                current_reserve = claim_data['reserve_cumsum'].iloc[-1]
-                current_incurred = claim_data['incurred_cumsum'].iloc[-1]
-                current_paid = claim_data['paid_cumsum'].iloc[-1]
-                current_expense = claim_data['expense_cumsum'].iloc[-1]
-                
-                # Ratios
-                paid_to_incurred_ratio = current_paid / max(current_incurred, 1)
-                expense_to_incurred_ratio = current_expense / max(current_incurred, 1)
-                
-                # Development stage (max 5 years = 1825 days)
-                development_stage = min(days_since_first_txn / 1825, 1.0)
-                
-                open_claims_metrics.append({
-                    'clmNum': claim_num,
-                    'clmStatus': claim_data['clmStatus'].iloc[-1],  # Use final status
-                    'clmCause': claim_data['clmCause'].iloc[0],  # First occurrence per claim
-                    'num_transactions': num_transactions,
-                    'days_since_first_txn': days_since_first_txn,
-                    'time_to_first_paid': time_to_first_paid,
-                    'time_to_first_expense': time_to_first_expense,
-                    'num_expense_txns': num_expense_txns,
-                    'num_paid_txns': num_paid_txns,
-                    'avg_expense_amount': avg_expense_amount,
-                    'avg_paid_amount': avg_paid_amount,
-                    'avg_reserve_change': avg_reserve_change,
-                    'avg_incurred_change': avg_incurred_change,
-                    'current_reserve': current_reserve,
-                    'current_incurred': current_incurred,
-                    'current_paid': current_paid,
-                    'current_expense': current_expense,
-                    'current_cashflow': current_paid + current_expense,  # Add current cashflow
-                    'paid_to_incurred_ratio': paid_to_incurred_ratio,
-                    'expense_to_incurred_ratio': expense_to_incurred_ratio,
-                    'development_stage': development_stage,  # Add development stage
-                    'dateReopened': claim_data['dateReopened'].iloc[-1] if 'dateReopened' in claim_data.columns else None,
-                    'isReopened': 1 if pd.notna(claim_data['dateReopened'].iloc[-1]) else 0
-                })
-        
-        # Create comprehensive open claims summary
-        open_claim_metrics_df = pd.DataFrame(open_claims_metrics)
-        
-        # Display summary statistics
-        #st.write("**📊 Open Claims Summary Statistics**")
-        summary_cols = ['num_transactions', 'days_since_first_txn', 'num_expense_txns', 'num_paid_txns', 
-                        'current_reserve', 'current_incurred', 'current_paid', 'current_expense']
-        
-        summary_open_stats = open_claim_metrics_df.groupby(['clmCause','clmStatus'])[summary_cols].describe()
-        #st.dataframe(summary_stats, use_container_width=True)
-        
-        # Display detailed metrics for each claim
-        #st.write("**📋 Detailed Open Claims Metrics**")
-        display_cols = ['clmCause','clmNum','num_transactions', 'days_since_first_txn', 'num_expense_txns', 
-                        'num_paid_txns', 'current_reserve', 'current_incurred', 'current_paid', 'current_expense', 'current_cashflow']
-        display_claim_metrics_df = open_claim_metrics_df[display_cols].copy()
-        display_claim_metrics_df.columns = ['Claim Clause','Claim Number','Transactions', 'Days Since First Txn', 'Expense Txns', 
-                                'Paid Txns', 'Current Reserve', 'Current Incurred', 'Current Paid', 'Current Expense', 'Current Cashflow']
-        #st.dataframe(display_df, use_container_width=True)
-        return open_claim_metrics_df,summary_open_stats,display_claim_metrics_df
-    else:
-        # Return empty DataFrames when there are no open claims
+def _generate_data_hash(df):
+    """Generate a hash of the dataframe for caching purposes"""
+    return hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
+
+def _get_cache_path(data_hash):
+    """Get the cache file path for given data hash"""
+    cache_dir = './_data/cache'
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f'claim_features_{data_hash}.parquet')
+
+def calculate_claim_features_vectorized(df_txn):
+    """Vectorized calculation of claim features using pandas groupby operations"""
+    if len(df_txn) == 0:
         empty_df = pd.DataFrame()
         empty_summary = pd.DataFrame()
         empty_display = pd.DataFrame()
-        return empty_df, empty_summary, empty_display   
+        return empty_df, empty_summary, empty_display
+
+    # Ensure data is sorted
+    df_sorted = df_txn.sort_values(['clmNum', 'datetxn']).copy()
+
+    # Group by claim for vectorized operations
+    claim_groups = df_sorted.groupby('clmNum')
+
+    # Basic metrics using vectorized operations
+    basic_metrics = claim_groups.agg({
+        'datetxn': ['count', 'min', 'max'],
+        'clmStatus': 'last',
+        'clmCause': 'first',
+        'dateReopened': 'last',
+        'paid_cumsum': 'last',
+        'expense_cumsum': 'last',
+        'recovery_cumsum': 'last',
+        'reserve_cumsum': 'last',
+        'incurred_cumsum': 'last'
+    }).reset_index()
+
+    # Flatten column names
+    basic_metrics.columns = ['clmNum', 'num_transactions', 'first_txn_date', 'last_txn_date',
+                            'clmStatus', 'clmCause', 'dateReopened', 'current_paid',
+                            'current_expense', 'current_recovery', 'current_reserve', 'current_incurred']
+
+    # Calculate days since first transaction
+    basic_metrics['days_since_first_txn'] = (basic_metrics['last_txn_date'] - basic_metrics['first_txn_date']).dt.days
+
+    # Calculate time to first payment/expense vectorized
+    def calc_time_to_first(group):
+        first_paid = group[group['paid_cumsum'] > 0]['datetxn'].min()
+        first_expense = group[group['expense_cumsum'] > 0]['datetxn'].min()
+        min_date = group['datetxn'].min()
+        max_days = (group['datetxn'].max() - min_date).days
+
+        return pd.Series({
+            'time_to_first_paid': (first_paid - min_date).days if pd.notna(first_paid) else max_days,
+            'time_to_first_expense': (first_expense - min_date).days if pd.notna(first_expense) else max_days
+        })
+
+    time_metrics = claim_groups.apply(calc_time_to_first).reset_index()
+
+    # Transaction counts vectorized
+    def calc_txn_counts(group):
+        return pd.Series({
+            'num_expense_txns': (group['expense'] > 0).sum(),
+            'num_paid_txns': (group['paid'] > 0).sum()
+        })
+
+    txn_counts = claim_groups.apply(calc_txn_counts).reset_index()
+
+    # Change metrics vectorized
+    def calc_change_metrics(group):
+        reserve_changes = group[group['reserve_change'] != 0]['reserve_change']
+        incurred_changes = group[group['incurred_change'] != 0]['incurred_change']
+
+        return pd.Series({
+            'avg_reserve_change': reserve_changes.mean() if len(reserve_changes) > 0 else 0,
+            'avg_incurred_change': incurred_changes.mean() if len(incurred_changes) > 0 else 0
+        })
+
+    change_metrics = claim_groups.apply(calc_change_metrics).reset_index()
+
+    # Merge all metrics
+    features_df = basic_metrics.merge(time_metrics, on='clmNum')
+    features_df = features_df.merge(txn_counts, on='clmNum')
+    features_df = features_df.merge(change_metrics, on='clmNum')
+
+    # Calculate derived metrics
+    features_df['avg_expense_amount'] = features_df['current_expense'] / np.maximum(features_df['num_expense_txns'], 1)
+    features_df['avg_paid_amount'] = features_df['current_paid'] / np.maximum(features_df['num_paid_txns'], 1)
+    features_df['current_cashflow'] = features_df['current_paid'] + features_df['current_expense']
+    features_df['paid_to_incurred_ratio'] = features_df['current_paid'] / np.maximum(features_df['current_incurred'], 1)
+    features_df['expense_to_incurred_ratio'] = features_df['current_expense'] / np.maximum(features_df['current_incurred'], 1)
+    features_df['development_stage'] = np.minimum(features_df['days_since_first_txn'] / 1825, 1.0)
+    features_df['isReopened'] = features_df['dateReopened'].notna().astype(int)
+
+    # Drop temporary date columns
+    features_df = features_df.drop(['first_txn_date', 'last_txn_date'], axis=1)
+
+    # Create summary statistics
+    summary_cols = ['num_transactions', 'days_since_first_txn', 'num_expense_txns', 'num_paid_txns',
+                    'current_reserve', 'current_incurred', 'current_paid', 'current_expense']
+
+    summary_stats = features_df.groupby(['clmCause', 'clmStatus'])[summary_cols].describe()
+
+    # Create display dataframe
+    display_cols = ['clmCause', 'clmNum', 'num_transactions', 'days_since_first_txn', 'num_expense_txns',
+                    'num_paid_txns', 'current_reserve', 'current_incurred', 'current_paid', 'current_expense', 'current_cashflow']
+    display_df = features_df[display_cols].copy()
+    display_df.columns = ['Claim Clause', 'Claim Number', 'Transactions', 'Days Since First Txn', 'Expense Txns',
+                         'Paid Txns', 'Current Reserve', 'Current Incurred', 'Current Paid', 'Current Expense', 'Current Cashflow']
+
+    return features_df, summary_stats, display_df
+
+def calculate_claim_features(df_open_txn, use_cache=True, force_recalculate=False):
+    """Calculate comprehensive metrics for claims with caching and vectorization"""
+    if len(df_open_txn) == 0:
+        empty_df = pd.DataFrame()
+        empty_summary = pd.DataFrame()
+        empty_display = pd.DataFrame()
+        return empty_df, empty_summary, empty_display
+
+    # Generate data hash for caching
+    data_hash = _generate_data_hash(df_open_txn)
+    cache_path = _get_cache_path(data_hash)
+
+    # Try to load from cache first
+    if use_cache and not force_recalculate and os.path.exists(cache_path):
+        try:
+            print(f"Loading cached claim features from: {cache_path}")
+            cached_results = pd.read_parquet(cache_path)
+
+            # Recreate summary and display dataframes
+            summary_cols = ['num_transactions', 'days_since_first_txn', 'num_expense_txns', 'num_paid_txns',
+                           'current_reserve', 'current_incurred', 'current_paid', 'current_expense']
+            summary_stats = cached_results.groupby(['clmCause', 'clmStatus'])[summary_cols].describe()
+
+            display_cols = ['clmCause', 'clmNum', 'num_transactions', 'days_since_first_txn', 'num_expense_txns',
+                           'num_paid_txns', 'current_reserve', 'current_incurred', 'current_paid', 'current_expense', 'current_cashflow']
+            display_df = cached_results[display_cols].copy()
+            display_df.columns = ['Claim Clause', 'Claim Number', 'Transactions', 'Days Since First Txn', 'Expense Txns',
+                                 'Paid Txns', 'Current Reserve', 'Current Incurred', 'Current Paid', 'Current Expense', 'Current Cashflow']
+
+            return cached_results, summary_stats, display_df
+
+        except Exception as e:
+            print(f"Error loading cache, recalculating: {e}")
+
+    # Calculate features using vectorized approach
+    print("Calculating claim features using vectorized operations...")
+    features_df, summary_stats, display_df = calculate_claim_features_vectorized(df_open_txn)
+
+    # Save to cache
+    if use_cache and len(features_df) > 0:
+        try:
+            features_df.to_parquet(cache_path)
+            print(f"Cached claim features to: {cache_path}")
+        except Exception as e:
+            print(f"Warning: Could not save cache: {e}")
+
+    return features_df, summary_stats, display_df   
 
 def _filter_by_(df,col,value):
     return df[df[col].str.contains(value.strip(), case=False, na=False)]

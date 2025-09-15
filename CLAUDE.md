@@ -64,8 +64,25 @@ _data/
 ├── clm_with_amt.csv        # Raw claims transaction data
 ├── clm_with_amt.parquet    # Processed claims data (auto-generated)
 ├── notes.csv               # Raw notes data
-└── notes.parquet           # Processed notes data (auto-generated)
+├── notes.parquet           # Processed notes data (auto-generated)
+└── cache/                  # Feature calculation cache directory
+    └── claim_features_*.parquet  # Cached claim feature calculations
 ```
+
+## Performance Optimizations
+
+### Feature Calculation Caching
+The `calculate_claim_features` function includes intelligent caching:
+- Generates data hash to detect changes in input data
+- Caches results as parquet files in `_data/cache/`
+- Automatically loads from cache when data hasn't changed
+- Use `force_recalculate=True` to bypass cache when needed
+
+### Vectorized Operations
+- Replaced claim-by-claim loops with pandas groupby operations
+- Uses vectorized calculations for all metrics (26+ features per claim)
+- Significant performance improvement for large datasets
+- Maintains identical results to original implementation
 
 ## Development Notes
 
@@ -73,4 +90,5 @@ _data/
 - Parquet files are automatically generated for performance optimization
 - The `NotesReviewerAgent` can generate dummy data if notes.csv doesn't exist
 - Claims status logic includes complex business rules for determining open/closed/paid states
+- Feature calculations are cached and vectorized for optimal performance
 - The UI provides both portfolio-level and individual claim-level analysis
