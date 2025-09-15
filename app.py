@@ -1,8 +1,16 @@
 from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
 from helpers.functions.plot_utils import plot_single_claim_lifetime
+from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary
 import pandas as pd
 import streamlit as st
 from helpers.functions.notes_utils import NotesReviewerAgent
+
+# Set page config
+st.set_page_config(
+    page_title="Claim Notes Analysis",
+    page_icon="📊",
+    layout="wide"
+)
 
 @st.cache_data
 def cached_load_data(report_date=None):
@@ -22,6 +30,13 @@ def cached_load_notes():
     """Cached wrapper for notes loading"""
     agent = NotesReviewerAgent()
     return agent.import_notes(), agent
+
+@st.cache_data
+def cached_nlp_analysis(notes_hash):
+    """Cached wrapper for NLP analysis"""
+    notes_df, _ = cached_load_notes()
+    nlp_analyzer = ClaimNotesNLPAnalyzer()
+    return nlp_analyzer.analyze_all_claims(notes_df)
 
 st.title("NLP Notes Summary for Predictive Status")
 report_date = st.sidebar.date_input("Report Date", value=None, help="Select the date of the report that would consider that any claims not closed by that date is still open and any claims closed and not reopened is closed")
@@ -67,8 +82,93 @@ if claim_filter.strip() and len(claim_filter) > 0:
 # get notes (cached)
 notes_df, agent = cached_load_notes()
 
+# get NLP features (cached)
+nlp_features_df = cached_nlp_analysis(str(len(notes_df)))
+
 claim_notes = agent.get_notes_by_claim(claim_filter)
 st.metric("Total Notes", len(claim_notes))
+
+# Display NLP Analysis section
+st.markdown("---")
+st.markdown("## 🤖 NLP Analysis")
+
+# Create tabs for different NLP views
+nlp_tab1, nlp_tab2, nlp_tab3 = st.tabs(["📊 Feature Summary", "🔍 Claim Analysis", "📈 Insights"])
+
+with nlp_tab1:
+    st.subheader("NLP Feature Summary")
+    if len(nlp_features_df) > 0:
+        summary_stats = create_nlp_feature_summary(nlp_features_df)
+        st.dataframe(summary_stats, use_container_width=True)
+
+        # Show keyword category totals
+        st.subheader("Keyword Category Totals")
+        keyword_cols = [col for col in nlp_features_df.columns if col.endswith('_count')]
+        keyword_totals = nlp_features_df[keyword_cols].sum().sort_values(ascending=False)
+        st.bar_chart(keyword_totals)
+
+with nlp_tab2:
+    st.subheader("Individual Claim NLP Features")
+    if claim_filter and len(nlp_features_df) > 0:
+        # Get NLP features for the selected claim
+        claim_nlp_features = nlp_features_df[nlp_features_df['clmNum'] == claim_filter]
+
+        if len(claim_nlp_features) > 0:
+            # Display key metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                sentiment_score = claim_nlp_features['sentiment_score'].iloc[0]
+                st.metric("Sentiment Score", f"{sentiment_score:.2f}")
+            with col2:
+                total_notes = claim_nlp_features['total_notes'].iloc[0]
+                st.metric("Total Notes", int(total_notes))
+            with col3:
+                comm_freq = claim_nlp_features['communication_frequency'].iloc[0]
+                st.metric("Comm. Frequency", f"{comm_freq:.3f}")
+            with col4:
+                last_sentiment = claim_nlp_features['last_note_sentiment'].iloc[0]
+                st.metric("Last Note Sentiment", f"{last_sentiment:.2f}")
+
+            # Show detailed features
+            st.subheader("Detailed NLP Features")
+            feature_display = claim_nlp_features.T
+            feature_display.columns = ['Value']
+            st.dataframe(feature_display, use_container_width=True)
+        else:
+            st.info(f"No NLP features found for claim {claim_filter}")
+    else:
+        st.info("Select a claim to see detailed NLP analysis")
+
+with nlp_tab3:
+    st.subheader("NLP Insights & Patterns")
+    if len(nlp_features_df) > 0:
+        # Merge with claim status data for insights
+        merged_df = nlp_features_df.merge(
+            df_raw_final[['clmNum', 'clmStatus', 'clmCause']],
+            on='clmNum',
+            how='left'
+        )
+
+        if len(merged_df) > 0:
+            # Sentiment by status
+            st.subheader("Sentiment by Claim Status")
+            sentiment_by_status = merged_df.groupby('clmStatus')['sentiment_score'].mean().sort_values(ascending=False)
+            st.bar_chart(sentiment_by_status)
+
+            # Communication frequency by status
+            st.subheader("Communication Frequency by Claim Status")
+            comm_by_status = merged_df.groupby('clmStatus')['communication_frequency'].mean().sort_values(ascending=False)
+            st.bar_chart(comm_by_status)
+
+            # Top predictive keywords
+            st.subheader("Keyword Usage by Claim Status")
+            status_filter = st.selectbox("Select Status for Keyword Analysis", merged_df['clmStatus'].unique())
+
+            if status_filter:
+                status_data = merged_df[merged_df['clmStatus'] == status_filter]
+                keyword_cols = [col for col in status_data.columns if col.endswith('_count')]
+                avg_keywords = status_data[keyword_cols].mean().sort_values(ascending=False)
+                st.bar_chart(avg_keywords.head(10))
 
 # Display notes timeline
 if claim_filter:

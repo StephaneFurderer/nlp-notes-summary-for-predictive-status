@@ -84,6 +84,83 @@ The `calculate_claim_features` function includes intelligent caching:
 - Significant performance improvement for large datasets
 - Maintains identical results to original implementation
 
+## NLP Research: Predicting Claim Status from Notes
+
+### Project Structure for NLP Analysis
+
+The goal is to extract key information from claim notes to predict claim status (PAID/CLOSED/DENIED) using classification models.
+
+### Text Feature Extraction Approaches
+
+#### 1. Keyword/Phrase Analysis
+- **Domain-specific terms**: "investigation", "fraud", "medical records", "liability", "settlement"
+- **Sentiment indicators**: "disputed", "agreed", "denied", "approved", "pending"
+- **Urgency markers**: "urgent", "immediate", "follow-up required", "deadline"
+- **Financial terms**: "estimate", "quote", "damage assessment", "coverage limit"
+
+#### 2. Named Entity Recognition (NER)
+- **People**: Adjuster names, claimant names, witness names
+- **Organizations**: Repair shops, medical facilities, legal firms
+- **Locations**: Accident locations, addresses
+- **Dates**: Important deadlines, incident dates, follow-up dates
+- **Monetary amounts**: Claim values, deductibles, estimates
+
+#### 3. Temporal Pattern Analysis
+- **Note frequency**: Claims with many notes vs. few notes
+- **Time gaps**: Long periods without updates might indicate stalled claims
+- **Note timing**: Notes added close to deadlines
+- **Communication patterns**: Regular vs. sporadic updates
+
+### Advanced NLP Techniques
+
+#### 4. Sentiment & Tone Analysis
+- **Conflict indicators**: "disagreement", "dispute", "challenge"
+- **Cooperation signals**: "agreed", "collaborative", "responsive"
+- **Frustration markers**: "delays", "unresponsive", "complications"
+
+#### 5. Topic Modeling
+- **Claim categories**: Medical, property damage, liability, theft
+- **Process stages**: Investigation, negotiation, documentation, closure
+- **Issue types**: Coverage disputes, fraud concerns, documentation problems
+
+#### 6. Sequential Patterns
+- **Note progression**: How language changes over time
+- **Status transitions**: Notes preceding status changes
+- **Decision indicators**: Words that appear before denials/approvals
+
+### Feature Engineering Strategy
+
+#### 7. Aggregated Metrics
+- **Note complexity**: Average words per note, vocabulary diversity
+- **Communication frequency**: Notes per day/week
+- **Stakeholder involvement**: Number of different people mentioned
+- **Process indicators**: Mentions of specific procedures or requirements
+
+#### 8. Risk Indicators
+- **Red flags**: "legal", "attorney", "lawsuit", "subpoena"
+- **Positive signals**: "straightforward", "clear", "documented"
+- **Uncertainty markers**: "unclear", "investigating", "pending"
+
+### Model Architecture Considerations
+
+#### 9. Feature Combinations
+- **Text + Financial**: Combine note features with transaction amounts
+- **Text + Temporal**: Note sentiment + time since first transaction
+- **Text + Claim attributes**: Note content + claim cause/type
+
+#### 10. Prediction Targets
+- **Binary**: Will claim be denied (Y/N)?
+- **Multi-class**: Predict final status (PAID/CLOSED/DENIED)
+- **Probability**: Likelihood of each outcome
+- **Time-to-event**: Predict when status will change
+
+### Implementation Plan
+1. Start with keyword extraction and sentiment analysis (interpretable baseline)
+2. Build domain-specific keyword dictionaries for insurance claims
+3. Implement sentiment scoring for notes
+4. Combine text features with existing claim financial features
+5. Train classification models to predict claim outcomes
+
 ## Development Notes
 
 - The application uses pandas extensively for data processing
