@@ -78,6 +78,14 @@ The `calculate_claim_features` function includes intelligent caching:
 - Automatically loads from cache when data hasn't changed
 - Use `force_recalculate=True` to bypass cache when needed
 
+### NLP Analysis Caching
+The `analyze_claims_with_caching` function provides report-date-aware caching:
+- Combines notes data hash with report date for unique cache keys
+- Creates separate cache files for different report dates
+- Filters notes by report date before analysis when specified
+- Stores results as `nlp_features_[hash].parquet` files
+- Instant loading for previously analyzed date combinations
+
 ### Vectorized Operations
 - Replaced claim-by-claim loops with pandas groupby operations
 - Uses vectorized calculations for all metrics (26+ features per claim)

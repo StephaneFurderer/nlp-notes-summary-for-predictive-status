@@ -4,6 +4,7 @@ import re
 from typing import Dict, List, Tuple, Optional
 from collections import Counter
 import os
+import hashlib
 
 class ClaimNotesNLPAnalyzer:
     """
@@ -260,15 +261,21 @@ class ClaimNotesNLPAnalyzer:
 
         return features
 
-    def analyze_all_claims(self, notes_df: pd.DataFrame) -> pd.DataFrame:
+    def analyze_all_claims(self, notes_df: pd.DataFrame, progress_callback=None) -> pd.DataFrame:
         """Analyze notes for all claims and return a feature dataframe"""
         unique_claims = notes_df['clmNum'].unique()
+        total_claims = len(unique_claims)
 
         all_features = []
-        for claim_num in unique_claims:
+        for i, claim_num in enumerate(unique_claims):
             features = self.analyze_notes_for_claim(notes_df, claim_num)
             features['clmNum'] = claim_num
             all_features.append(features)
+
+            # Call progress callback if provided
+            if progress_callback:
+                progress_percent = (i + 1) / total_claims
+                progress_callback(progress_percent, i + 1, total_claims)
 
         # Convert to DataFrame
         features_df = pd.DataFrame(all_features)
@@ -278,6 +285,86 @@ class ClaimNotesNLPAnalyzer:
         features_df = features_df[cols]
 
         return features_df
+
+def _generate_nlp_data_hash(notes_df: pd.DataFrame, report_date=None) -> str:
+    """Generate a hash for NLP caching that includes notes data and report date"""
+    # Create a hash based on notes data content
+    notes_hash = hashlib.md5(pd.util.hash_pandas_object(notes_df, index=True).values).hexdigest()
+
+    # Include report date in hash to ensure separate caches for different date filters
+    report_date_str = str(report_date) if report_date is not None else "no_date"
+
+    # Combine both components
+    combined_string = f"{notes_hash}_{report_date_str}"
+    combined_hash = hashlib.md5(combined_string.encode()).hexdigest()
+
+    return combined_hash
+
+def _get_nlp_cache_path(data_hash: str) -> str:
+    """Get the cache file path for NLP features"""
+    cache_dir = './_data/cache'
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f'nlp_features_{data_hash}.parquet')
+
+def analyze_claims_with_caching(notes_df: pd.DataFrame, report_date=None, use_cache=True, force_recalculate=False, progress_callback=None) -> pd.DataFrame:
+    """
+    Analyze all claims with persistent caching that considers report date.
+
+    Args:
+        notes_df: DataFrame containing notes data
+        report_date: Report date for filtering (affects cache key)
+        use_cache: Whether to use caching
+        force_recalculate: Force recalculation even if cache exists
+
+    Returns:
+        DataFrame with NLP features for all claims
+    """
+    if len(notes_df) == 0:
+        return pd.DataFrame()
+
+    # Generate cache hash that includes both notes data and report date
+    data_hash = _generate_nlp_data_hash(notes_df, report_date)
+    cache_path = _get_nlp_cache_path(data_hash)
+
+    # Try to load from cache first
+    if use_cache and not force_recalculate and os.path.exists(cache_path):
+        try:
+            print(f"Loading cached NLP features from: {cache_path}")
+            cached_features = pd.read_parquet(cache_path)
+            print(f"Loaded NLP features for {len(cached_features)} claims from cache")
+            return cached_features
+        except Exception as e:
+            print(f"Error loading NLP cache, recalculating: {e}")
+
+    # Calculate NLP features
+    print("Calculating NLP features for all claims...")
+    nlp_analyzer = ClaimNotesNLPAnalyzer()
+
+    # Filter notes based on report date if provided
+    filtered_notes_df = notes_df.copy()
+    if report_date is not None:
+        # Convert report_date to pandas timestamp if it's not already
+        if hasattr(report_date, 'strftime'):
+            report_timestamp = pd.Timestamp(report_date)
+        else:
+            report_timestamp = pd.to_datetime(report_date)
+
+        # Filter notes to only include those before or on the report date
+        filtered_notes_df = filtered_notes_df[filtered_notes_df['whenadded'] <= report_timestamp]
+        print(f"Filtered notes from {len(notes_df)} to {len(filtered_notes_df)} based on report date: {report_date}")
+
+    # Analyze the filtered notes with progress tracking
+    features_df = nlp_analyzer.analyze_all_claims(filtered_notes_df, progress_callback=progress_callback)
+
+    # Save to cache
+    if use_cache and len(features_df) > 0:
+        try:
+            features_df.to_parquet(cache_path)
+            print(f"Cached NLP features to: {cache_path}")
+        except Exception as e:
+            print(f"Warning: Could not save NLP cache: {e}")
+
+    return features_df
 
 def create_nlp_feature_summary(features_df: pd.DataFrame) -> pd.DataFrame:
     """Create a summary of NLP features for analysis"""

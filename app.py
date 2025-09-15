@@ -1,8 +1,9 @@
 from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
 from helpers.functions.plot_utils import plot_single_claim_lifetime
-from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary
+from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary, analyze_claims_with_caching
 import pandas as pd
 import streamlit as st
+import os
 from helpers.functions.notes_utils import NotesReviewerAgent
 
 # Set page config
@@ -31,12 +32,60 @@ def cached_load_notes():
     agent = NotesReviewerAgent()
     return agent.import_notes(), agent
 
-@st.cache_data
-def cached_nlp_analysis(notes_hash):
-    """Cached wrapper for NLP analysis"""
+def get_nlp_analysis_with_progress(report_date):
+    """Get NLP analysis with progress tracking"""
     notes_df, _ = cached_load_notes()
-    nlp_analyzer = ClaimNotesNLPAnalyzer()
-    return nlp_analyzer.analyze_all_claims(notes_df)
+
+    # Check if cache exists first
+    from helpers.functions.nlp_utils import _generate_nlp_data_hash, _get_nlp_cache_path
+    data_hash = _generate_nlp_data_hash(notes_df, report_date)
+    cache_path = _get_nlp_cache_path(data_hash)
+
+    if os.path.exists(cache_path):
+        # Load from cache instantly
+        return pd.read_parquet(cache_path)
+
+    # If no cache, show progress during calculation
+    st.info("🔄 Calculating NLP features for all claims...")
+
+    # Create progress containers
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    def update_progress(percent, current, total):
+        progress_bar.progress(percent)
+        status_text.text(f"Processing claim {current} of {total} ({percent:.1%})")
+
+    # Calculate with progress tracking
+    result = analyze_claims_with_caching(
+        notes_df,
+        report_date=report_date,
+        progress_callback=update_progress
+    )
+
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    st.success(f"✅ NLP analysis completed for {len(result)} claims!")
+
+    return result
+
+@st.cache_data
+def cached_nlp_analysis_simple(report_date_str):
+    """Simple cached wrapper for when cache exists"""
+    notes_df, _ = cached_load_notes()
+    report_date = None if report_date_str == "None" else pd.to_datetime(report_date_str)
+
+    # Check cache first
+    from helpers.functions.nlp_utils import _generate_nlp_data_hash, _get_nlp_cache_path
+    data_hash = _generate_nlp_data_hash(notes_df, report_date)
+    cache_path = _get_nlp_cache_path(data_hash)
+
+    if os.path.exists(cache_path):
+        return pd.read_parquet(cache_path)
+    else:
+        # This will trigger the progress version
+        return None
 
 st.title("NLP Notes Summary for Predictive Status")
 report_date = st.sidebar.date_input("Report Date", value=None, help="Select the date of the report that would consider that any claims not closed by that date is still open and any claims closed and not reopened is closed")
@@ -82,8 +131,13 @@ if claim_filter.strip() and len(claim_filter) > 0:
 # get notes (cached)
 notes_df, agent = cached_load_notes()
 
-# get NLP features (cached)
-nlp_features_df = cached_nlp_analysis(str(len(notes_df)))
+# get NLP features (cached with report date awareness and progress tracking)
+# First try the cached version
+nlp_features_df = cached_nlp_analysis_simple(str(report_date))
+
+# If cache miss, use progress version
+if nlp_features_df is None:
+    nlp_features_df = get_nlp_analysis_with_progress(report_date)
 
 claim_notes = agent.get_notes_by_claim(claim_filter)
 st.metric("Total Notes", len(claim_notes))
