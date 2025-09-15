@@ -306,18 +306,19 @@ def _get_nlp_cache_path(data_hash: str) -> str:
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f'nlp_features_{data_hash}.parquet')
 
-def analyze_claims_with_caching(notes_df: pd.DataFrame, report_date=None, use_cache=True, force_recalculate=False, progress_callback=None) -> pd.DataFrame:
+def analyze_claims_with_caching(notes_df: pd.DataFrame, claims_df=None, report_date=None, use_cache=True, force_recalculate=False, progress_callback=None) -> pd.DataFrame:
     """
     Analyze all claims with persistent caching that considers report date.
 
     Args:
         notes_df: DataFrame containing notes data
+        claims_df: DataFrame containing claims data with status information
         report_date: Report date for filtering (affects cache key)
         use_cache: Whether to use caching
         force_recalculate: Force recalculation even if cache exists
 
     Returns:
-        DataFrame with NLP features for all claims
+        DataFrame with NLP features for filtered claims
     """
     if len(notes_df) == 0:
         return pd.DataFrame()
@@ -340,6 +341,26 @@ def analyze_claims_with_caching(notes_df: pd.DataFrame, report_date=None, use_ca
     print("Calculating NLP features for all claims...")
     nlp_analyzer = ClaimNotesNLPAnalyzer()
 
+    # Filter claims based on status criteria
+    eligible_claims = set()
+    if claims_df is not None:
+        # Keep PAID, DENIED, CLOSED (regardless of reopened status)
+        final_status_filter = claims_df['clmStatus'].isin(['PAID', 'DENIED', 'CLOSED'])
+
+        # Keep INITIAL_REVIEW only if reopened (dateReopened not null)
+        initial_review_reopened = (claims_df['clmStatus'] == 'INITIAL_REVIEW') & (claims_df['dateReopened'].notna())
+
+        # Combine both conditions
+        eligible_claims_df = claims_df[final_status_filter | initial_review_reopened]
+        eligible_claims = set(eligible_claims_df['clmNum'].unique())
+
+        print(f"Filtered claims to {len(eligible_claims)} eligible claims based on status criteria")
+        print(f"Status breakdown: {eligible_claims_df['clmStatus'].value_counts().to_dict()}")
+
+        # Show breakdown of reopened vs non-reopened
+        reopened_count = eligible_claims_df['dateReopened'].notna().sum()
+        print(f"Reopened claims: {reopened_count}, Non-reopened claims: {len(eligible_claims_df) - reopened_count}")
+
     # Filter notes based on report date if provided
     filtered_notes_df = notes_df.copy()
     if report_date is not None:
@@ -352,6 +373,12 @@ def analyze_claims_with_caching(notes_df: pd.DataFrame, report_date=None, use_ca
         # Filter notes to only include those before or on the report date
         filtered_notes_df = filtered_notes_df[filtered_notes_df['whenadded'] <= report_timestamp]
         print(f"Filtered notes from {len(notes_df)} to {len(filtered_notes_df)} based on report date: {report_date}")
+
+    # Filter notes to only include eligible claims
+    if eligible_claims:
+        original_count = len(filtered_notes_df)
+        filtered_notes_df = filtered_notes_df[filtered_notes_df['clmNum'].isin(eligible_claims)]
+        print(f"Filtered notes from {original_count} to {len(filtered_notes_df)} based on eligible claims")
 
     # Analyze the filtered notes with progress tracking
     features_df = nlp_analyzer.analyze_all_claims(filtered_notes_df, progress_callback=progress_callback)

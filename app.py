@@ -1,6 +1,7 @@
 from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
 from helpers.functions.plot_utils import plot_single_claim_lifetime
 from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary, analyze_claims_with_caching
+from helpers.functions.ml_models import ClaimStatusBaselineModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix
 import pandas as pd
 import streamlit as st
 import os
@@ -32,7 +33,7 @@ def cached_load_notes():
     agent = NotesReviewerAgent()
     return agent.import_notes(), agent
 
-def get_nlp_analysis_with_progress(report_date):
+def get_nlp_analysis_with_progress(report_date, claims_df):
     """Get NLP analysis with progress tracking"""
     notes_df, _ = cached_load_notes()
 
@@ -46,7 +47,7 @@ def get_nlp_analysis_with_progress(report_date):
         return pd.read_parquet(cache_path)
 
     # If no cache, show progress during calculation
-    st.info("🔄 Calculating NLP features for all claims...")
+    st.info("🔄 Calculating NLP features for eligible claims...")
 
     # Create progress containers
     progress_bar = st.progress(0)
@@ -59,6 +60,7 @@ def get_nlp_analysis_with_progress(report_date):
     # Calculate with progress tracking
     result = analyze_claims_with_caching(
         notes_df,
+        claims_df=claims_df,
         report_date=report_date,
         progress_callback=update_progress
     )
@@ -66,7 +68,7 @@ def get_nlp_analysis_with_progress(report_date):
     # Clear progress indicators
     progress_bar.empty()
     status_text.empty()
-    st.success(f"✅ NLP analysis completed for {len(result)} claims!")
+    st.success(f"✅ NLP analysis completed for {len(result)} eligible claims!")
 
     return result
 
@@ -107,6 +109,24 @@ selected_cause = st.sidebar.selectbox("Select Claim Cause", ['ALL', *df_raw_txn[
 st.sidebar.markdown("🔍 Claim Search")
 claim_filter = st.sidebar.selectbox("Filter by Claim Number (optional)", [*df_raw_txn[df_raw_txn['clmCause']==selected_cause]['clmNum'].unique()], help="Enter a claim number to filter data, leave blank to show all")
 
+st.sidebar.markdown("🔍 NLP Analysis Filters")
+# Show info about NLP eligible claims
+final_status_filter = df_raw_final['clmStatus'].isin(['PAID', 'DENIED', 'CLOSED'])
+initial_review_reopened = (df_raw_final['clmStatus'] == 'INITIAL_REVIEW') & (df_raw_final['dateReopened'].notna())
+eligible_claims_df = df_raw_final[final_status_filter | initial_review_reopened]
+
+st.sidebar.info(f"""
+**NLP Analysis Criteria:**
+- PAID/DENIED/CLOSED: All claims
+- INITIAL_REVIEW: Only if reopened
+
+**Eligible Claims:** {len(eligible_claims_df):,}
+- PAID: {(eligible_claims_df['clmStatus'] == 'PAID').sum():,}
+- DENIED: {(eligible_claims_df['clmStatus'] == 'DENIED').sum():,}
+- CLOSED: {(eligible_claims_df['clmStatus'] == 'CLOSED').sum():,}
+- INITIAL_REVIEW (reopened): {((eligible_claims_df['clmStatus'] == 'INITIAL_REVIEW') & (eligible_claims_df['dateReopened'].notna())).sum():,}
+""")
+
 # Panel to visualize the lifetime of a claim at the center of the screen
 st.markdown("--")
 st.markdown("## 📈 Claim Lifetime")
@@ -137,7 +157,7 @@ nlp_features_df = cached_nlp_analysis_simple(str(report_date))
 
 # If cache miss, use progress version
 if nlp_features_df is None:
-    nlp_features_df = get_nlp_analysis_with_progress(report_date)
+    nlp_features_df = get_nlp_analysis_with_progress(report_date, df_raw_final)
 
 claim_notes = agent.get_notes_by_claim(claim_filter)
 st.metric("Total Notes", len(claim_notes))
@@ -147,7 +167,7 @@ st.markdown("---")
 st.markdown("## 🤖 NLP Analysis")
 
 # Create tabs for different NLP views
-nlp_tab1, nlp_tab2, nlp_tab3 = st.tabs(["📊 Feature Summary", "🔍 Claim Analysis", "📈 Insights"])
+nlp_tab1, nlp_tab2, nlp_tab3, nlp_tab4 = st.tabs(["📊 Feature Summary", "🔍 Claim Analysis", "📈 Insights", "🤖 ML Baseline"])
 
 with nlp_tab1:
     st.subheader("NLP Feature Summary")
@@ -223,6 +243,137 @@ with nlp_tab3:
                 keyword_cols = [col for col in status_data.columns if col.endswith('_count')]
                 avg_keywords = status_data[keyword_cols].mean().sort_values(ascending=False)
                 st.bar_chart(avg_keywords.head(10))
+
+with nlp_tab4:
+    st.subheader("🤖 Baseline ML Model")
+
+    if len(nlp_features_df) > 0:
+        # Model training section
+        st.subheader("Model Training")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            train_model = st.button("🚀 Train Baseline Model", type="primary")
+        with col2:
+            test_size = st.slider("Test Set Size", 0.1, 0.4, 0.2, 0.05)
+        with col3:
+            save_model = st.checkbox("Save Model", value=True)
+
+        # Initialize session state for model
+        if 'baseline_model' not in st.session_state:
+            st.session_state.baseline_model = None
+            st.session_state.training_results = None
+
+        if train_model:
+            try:
+                with st.spinner("Training baseline Random Forest model..."):
+                    # Initialize model
+                    model = ClaimStatusBaselineModel()
+
+                    # Train model
+                    training_results = model.train(
+                        nlp_features_df=nlp_features_df,
+                        claims_df=df_raw_final,
+                        test_size=test_size
+                    )
+
+                    # Store in session state
+                    st.session_state.baseline_model = model
+                    st.session_state.training_results = training_results
+
+                    # Save model if requested
+                    if save_model:
+                        model_path = './_data/models/baseline_rf_model.joblib'
+                        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                        model.save_model(model_path)
+
+                    st.success("✅ Model training completed!")
+
+            except Exception as e:
+                st.error(f"❌ Error training model: {str(e)}")
+
+        # Display model results if available
+        if st.session_state.training_results is not None:
+            results = st.session_state.training_results
+
+            # Performance metrics
+            st.subheader("📊 Model Performance")
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Train Accuracy", f"{results['train_accuracy']:.3f}")
+            with col2:
+                st.metric("Test Accuracy", f"{results['test_accuracy']:.3f}")
+            with col3:
+                st.metric("CV Mean", f"{results['cv_mean']:.3f}")
+            with col4:
+                st.metric("CV Std", f"{results['cv_std']:.3f}")
+
+            # Performance summary table
+            st.subheader("📋 Detailed Performance")
+            performance_summary = create_model_performance_summary(results)
+            st.dataframe(performance_summary, use_container_width=True)
+
+            # Feature importance
+            st.subheader("🎯 Feature Importance")
+            top_n = st.slider("Number of top features to display", 5, 20, 10)
+
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                feature_importance = results['feature_importance'].head(top_n)
+                st.dataframe(feature_importance, use_container_width=True)
+
+            with col2:
+                fig = plot_feature_importance(results['feature_importance'], top_n)
+                st.pyplot(fig)
+
+            # Confusion matrix
+            st.subheader("🔄 Confusion Matrix")
+            fig_cm = plot_confusion_matrix(results['confusion_matrix'], results['class_names'])
+            st.pyplot(fig_cm)
+
+            # Model predictions on current data
+            if st.session_state.baseline_model is not None:
+                st.subheader("🎯 Model Predictions")
+
+                try:
+                    predictions = st.session_state.baseline_model.predict(nlp_features_df)
+
+                    # Show prediction summary
+                    pred_summary = predictions['predicted_status'].value_counts()
+                    st.write("**Prediction Summary:**")
+                    for status, count in pred_summary.items():
+                        st.write(f"- {status}: {count} claims")
+
+                    # Show top confident predictions
+                    st.write("**Most Confident Predictions:**")
+                    top_predictions = predictions.nlargest(10, 'prediction_confidence')[
+                        ['clmNum', 'predicted_status', 'prediction_confidence']
+                    ]
+                    st.dataframe(top_predictions, use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"Error making predictions: {str(e)}")
+
+        # Load existing model option
+        st.subheader("💾 Load Existing Model")
+        model_path = './_data/models/baseline_rf_model.joblib'
+        if os.path.exists(model_path):
+            if st.button("📂 Load Saved Model"):
+                try:
+                    model = ClaimStatusBaselineModel()
+                    model.load_model(model_path)
+                    st.session_state.baseline_model = model
+                    st.session_state.training_results = model.training_history
+                    st.success("✅ Model loaded successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error loading model: {str(e)}")
+        else:
+            st.info("No saved model found. Train a new model first.")
+
+    else:
+        st.info("No NLP features available. Please ensure notes data is loaded and processed.")
 
 # Display notes timeline
 if claim_filter:
