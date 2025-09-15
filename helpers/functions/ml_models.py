@@ -44,9 +44,18 @@ class ClaimStatusBaselineModel:
         Returns:
             DataFrame ready for training
         """
+        # Get available financial columns
+        financial_cols = ['clmNum', 'clmStatus', 'clmCause']
+        available_financial = []
+        for col in ['current_incurred', 'current_paid', 'current_expense', 'incurred_cumsum', 'paid_cumsum', 'expense_cumsum']:
+            if col in claims_df.columns:
+                available_financial.append(col)
+
+        merge_cols = financial_cols + available_financial
+
         # Merge NLP features with claim status
         merged_df = nlp_features_df.merge(
-            claims_df[['clmNum', 'clmStatus', 'clmCause', 'current_incurred', 'current_paid', 'current_expense']],
+            claims_df[merge_cols],
             on='clmNum',
             how='inner'
         )
@@ -79,9 +88,10 @@ class ClaimStatusBaselineModel:
                         'avg_note_length', 'total_text_length', 'communication_frequency',
                         'last_note_sentiment']
 
-        # Financial features if available
-        financial_features = ['current_incurred', 'current_paid', 'current_expense']
-        financial_features = [col for col in financial_features if col in df.columns]
+        # Financial features if available (check multiple possible column names)
+        possible_financial = ['current_incurred', 'current_paid', 'current_expense',
+                             'incurred_cumsum', 'paid_cumsum', 'expense_cumsum']
+        financial_features = [col for col in possible_financial if col in df.columns]
 
         # Combine all features
         all_features = nlp_features + financial_features
