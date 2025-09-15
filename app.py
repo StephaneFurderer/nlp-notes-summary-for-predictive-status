@@ -426,9 +426,10 @@ with nlp_tab4:
                             pred_denied = (open_predictions['predicted_status'] == 'DENIED').sum()
                             st.metric("Predicted DENIED", pred_denied)
 
-                        # Detailed predictions table
+                        # Detailed predictions table (include all 6 target classes)
                         display_cols = ['clmNum', 'clmStatus', 'clmCause', 'predicted_status',
-                                       'prediction_confidence', 'prob_PAID', 'prob_DENIED', 'prob_CLOSED']
+                                       'prediction_confidence', 'prob_PAID', 'prob_PAID_REOPENED',
+                                       'prob_DENIED', 'prob_DENIED_REOPENED', 'prob_CLOSED', 'prob_CLOSED_REOPENED']
                         available_cols = [col for col in display_cols if col in open_results.columns]
 
                         # Sort by confidence descending
@@ -468,11 +469,17 @@ with nlp_tab4:
                     for status, count in pred_summary.items():
                         st.write(f"- {status}: {count} claims")
 
-                    # Show top confident predictions
+                    # Show top confident predictions (include all probability classes)
                     st.write("**Most Confident Predictions:**")
-                    top_predictions = predictions.nlargest(10, 'prediction_confidence')[
-                        ['clmNum', 'predicted_status', 'prediction_confidence']
-                    ]
+                    prob_cols = ['clmNum', 'predicted_status', 'prediction_confidence']
+
+                    # Add all available probability columns
+                    all_prob_cols = ['prob_PAID', 'prob_PAID_REOPENED', 'prob_DENIED',
+                                   'prob_DENIED_REOPENED', 'prob_CLOSED', 'prob_CLOSED_REOPENED']
+                    available_prob_cols = [col for col in all_prob_cols if col in predictions.columns]
+
+                    display_cols = prob_cols + available_prob_cols
+                    top_predictions = predictions.nlargest(10, 'prediction_confidence')[display_cols]
                     st.dataframe(top_predictions, use_container_width=True)
 
                 except Exception as e:
