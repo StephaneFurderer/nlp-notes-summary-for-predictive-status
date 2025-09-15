@@ -333,40 +333,49 @@ class ClaimNotesPatternAnalyzer:
 
         return temporal_patterns
 
-    def generate_comprehensive_report(self, notes_df: pd.DataFrame, claims_df: pd.DataFrame) -> Dict:
+    def generate_comprehensive_report(self, notes_df: pd.DataFrame, claims_df: pd.DataFrame,
+                                     progress_callback=None) -> Dict:
         """
         Generate comprehensive pattern analysis report
 
         Args:
             notes_df: DataFrame with notes
             claims_df: DataFrame with claim information
+            progress_callback: Optional callback function for progress updates (percent, message)
 
         Returns:
             Complete analysis report
         """
-        print("🔍 Starting comprehensive pattern analysis...")
+        def update_progress(percent, message):
+            if progress_callback:
+                progress_callback(percent, message)
+            else:
+                print(f"{message} ({percent:.0%})")
+
+        update_progress(0.0, "🔍 Starting comprehensive pattern analysis...")
 
         # Extract word frequencies
-        print("1. Analyzing word frequencies by status...")
+        update_progress(0.1, "1. Analyzing word frequencies by status...")
         status_groups = self.extract_word_frequencies(notes_df, claims_df)
 
         # Extract n-gram patterns
-        print("2. Extracting n-gram patterns...")
+        update_progress(0.3, "2. Extracting n-gram patterns...")
         ngram_patterns = self.extract_ngram_patterns(status_groups)
 
         # Calculate TF-IDF features
-        print("3. Calculating TF-IDF discriminative features...")
+        update_progress(0.5, "3. Calculating TF-IDF discriminative features...")
         tfidf_analysis = self.calculate_tfidf_features(status_groups)
 
         # Find discriminative terms
-        print("4. Finding discriminative terms...")
+        update_progress(0.7, "4. Finding discriminative terms...")
         discriminative_terms = self.find_discriminative_terms(status_groups)
 
         # Analyze temporal patterns
-        print("5. Analyzing temporal patterns...")
+        update_progress(0.9, "5. Analyzing temporal patterns...")
         temporal_patterns = self.analyze_temporal_patterns(notes_df, claims_df)
 
         # Compile comprehensive report
+        update_progress(0.95, "6. Compiling comprehensive report...")
         report = {
             'summary': {
                 'total_notes': len(notes_df),
@@ -381,7 +390,7 @@ class ClaimNotesPatternAnalyzer:
             'temporal_patterns': temporal_patterns
         }
 
-        print("✅ Comprehensive pattern analysis completed!")
+        update_progress(1.0, "✅ Comprehensive pattern analysis completed!")
         return report
 
 def create_pattern_visualizations(report: Dict):

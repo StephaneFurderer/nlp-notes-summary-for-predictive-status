@@ -355,27 +355,88 @@ class ClaimStatusEnhancedModel(ClaimStatusBaselineModel):
             lambda x: ' '.join(x.fillna('').astype(str))
         ).reset_index()
 
-        # Initialize TF-IDF vectorizer with insurance-specific settings
-        insurance_stopwords = [
+        # Initialize TF-IDF vectorizer with liability-specific settings
+        liability_stopwords = [
+            # Generic insurance terms
             'claim', 'claims', 'claimant', 'policy', 'policyholder', 'insured',
             'insurance', 'company', 'adjuster', 'agent', 'representative',
             'will', 'would', 'could', 'should', 'may', 'might', 'can',
             'please', 'thank', 'thanks', 'regards', 'sincerely',
-            'contact', 'call', 'email', 'phone', 'number'
+            'contact', 'call', 'email', 'phone', 'number', 'date', 'time',
+            'file', 'received', 'sent', 'message', 'report', 'information',
+            'note', 'notes', 'updated', 'status', 'review', 'reviewed',
+            'pm', 'am', 'today', 'yesterday', 'tomorrow', 'monday', 'tuesday',
+            'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+
+            # Auto/vehicle specific terms to remove (not relevant for property liability)
+            'salvage', 'salvaged', 'total', 'totaled', 'totalling',
+            'auto', 'vehicle', 'car', 'truck', 'motorcycle', 'collision',
+            'comprehensive', 'deductible', 'mechanic',
+            'garage', 'towing', 'towed', 'estimate', 'estimates',
+            'parts', 'labor', 'bodyshop', 'body', 'shop',
+            'windshield', 'glass', 'bumper', 'fender', 'door',
+            'engine', 'transmission', 'brake', 'tire', 'wheel',
+
+            # Generic administrative terms
+            'received', 'sent', 'forwarded', 'attached', 'copy',
+            'original', 'signed', 'signature', 'document', 'documents',
+            'form', 'forms', 'application', 'submitted', 'processing'
         ]
+
+        def clean_text_for_tfidf(text):
+            """Enhanced text cleaning for TF-IDF"""
+            import re
+
+            # Convert to lowercase
+            text = text.lower()
+
+            # Remove common patterns that aren't meaningful
+            # Remove dates (various formats)
+            text = re.sub(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', '', text)
+            text = re.sub(r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b', '', text)
+
+            # Remove times
+            text = re.sub(r'\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b', '', text)
+
+            # Remove standalone numbers (but keep words with numbers)
+            text = re.sub(r'\b\d+\.?\d*\b', '', text)
+
+            # Remove dollar amounts
+            text = re.sub(r'\$\d+(?:,\d{3})*(?:\.\d{2})?', '', text)
+
+            # Remove common abbreviations and codes
+            text = re.sub(r'\b[A-Z]{2,}\b', '', text)  # Remove all-caps abbreviations
+
+            # Remove email-like patterns
+            text = re.sub(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', '', text)
+
+            # Remove phone-like patterns
+            text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '', text)
+
+            # Remove single characters and very short words
+            text = re.sub(r'\b[a-z]{1,2}\b', '', text)
+
+            # Clean up whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+
+            return text
+
+        # Pre-process texts with enhanced cleaning
+        cleaned_texts = claim_texts['note'].apply(clean_text_for_tfidf)
 
         self.tfidf_vectorizer = TfidfVectorizer(
             max_features=self.max_tfidf_features,
-            stop_words=insurance_stopwords,
+            stop_words=liability_stopwords,
             ngram_range=(1, 2),  # Include unigrams and bigrams
-            min_df=2,  # Must appear in at least 2 claims
-            max_df=0.8,  # Must not appear in more than 80% of claims
+            min_df=3,  # Must appear in at least 3 claims (increased from 2)
+            max_df=0.7,  # Must not appear in more than 70% of claims (decreased from 80%)
             lowercase=True,
-            token_pattern=r'\b[a-zA-Z]{3,}\b'  # Only words with 3+ characters
+            token_pattern=r'\b[a-zA-Z][a-zA-Z]+\b',  # Only alphabetic words, 2+ chars
+            strip_accents='ascii'  # Remove accents
         )
 
-        # Fit and transform the claim texts
-        tfidf_matrix = self.tfidf_vectorizer.fit_transform(claim_texts['note'])
+        # Fit and transform the cleaned texts
+        tfidf_matrix = self.tfidf_vectorizer.fit_transform(cleaned_texts)
         self.tfidf_feature_names = [f"tfidf_{name}" for name in self.tfidf_vectorizer.get_feature_names_out()]
 
         # Create DataFrame with TF-IDF features
@@ -582,8 +643,50 @@ class ClaimStatusEnhancedModel(ClaimStatusBaselineModel):
             lambda x: ' '.join(x.fillna('').astype(str))
         ).reset_index()
 
+        # Apply same text cleaning as during training
+        def clean_text_for_tfidf(text):
+            """Enhanced text cleaning for TF-IDF"""
+            import re
+
+            # Convert to lowercase
+            text = text.lower()
+
+            # Remove common patterns that aren't meaningful
+            # Remove dates (various formats)
+            text = re.sub(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', '', text)
+            text = re.sub(r'\b\d{4}[/-]\d{1,2}[/-]\d{1,2}\b', '', text)
+
+            # Remove times
+            text = re.sub(r'\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b', '', text)
+
+            # Remove standalone numbers (but keep words with numbers)
+            text = re.sub(r'\b\d+\.?\d*\b', '', text)
+
+            # Remove dollar amounts
+            text = re.sub(r'\$\d+(?:,\d{3})*(?:\.\d{2})?', '', text)
+
+            # Remove common abbreviations and codes
+            text = re.sub(r'\b[A-Z]{2,}\b', '', text)  # Remove all-caps abbreviations
+
+            # Remove email-like patterns
+            text = re.sub(r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', '', text)
+
+            # Remove phone-like patterns
+            text = re.sub(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b', '', text)
+
+            # Remove single characters and very short words
+            text = re.sub(r'\b[a-z]{1,2}\b', '', text)
+
+            # Clean up whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+
+            return text
+
+        # Clean the texts for prediction
+        cleaned_texts = claim_texts['note'].apply(clean_text_for_tfidf)
+
         # Transform notes to TF-IDF features
-        tfidf_matrix = self.tfidf_vectorizer.transform(claim_texts['note'])
+        tfidf_matrix = self.tfidf_vectorizer.transform(cleaned_texts)
         tfidf_df = pd.DataFrame(
             tfidf_matrix.toarray(),
             columns=self.tfidf_feature_names
