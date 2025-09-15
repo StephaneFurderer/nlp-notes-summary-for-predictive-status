@@ -753,6 +753,44 @@ class ClaimStatusEnhancedModel(ClaimStatusBaselineModel):
 
         return results
 
+    def save_model(self, filepath: str):
+        """Save the enhanced model including TF-IDF vectorizer"""
+        if not self.model_trained:
+            raise ValueError("Enhanced model must be trained before saving")
+
+        model_data = {
+            'model': self.model,
+            'label_encoder': self.label_encoder,
+            'scaler': self.scaler,
+            'feature_columns': self.feature_columns,
+            'enhanced_feature_columns': getattr(self, 'enhanced_feature_columns', None),
+            'training_history': self.training_history,
+            'tfidf_vectorizer': self.tfidf_vectorizer,
+            'tfidf_feature_names': self.tfidf_feature_names,
+            'max_tfidf_features': self.max_tfidf_features
+        }
+
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        joblib.dump(model_data, filepath)
+        print(f"Enhanced model saved to {filepath}")
+
+    def load_model(self, filepath: str):
+        """Load the enhanced model including TF-IDF vectorizer"""
+        model_data = joblib.load(filepath)
+
+        self.model = model_data['model']
+        self.label_encoder = model_data['label_encoder']
+        self.scaler = model_data['scaler']
+        self.feature_columns = model_data['feature_columns']
+        self.enhanced_feature_columns = model_data.get('enhanced_feature_columns', self.feature_columns)
+        self.training_history = model_data['training_history']
+        self.tfidf_vectorizer = model_data['tfidf_vectorizer']
+        self.tfidf_feature_names = model_data['tfidf_feature_names']
+        self.max_tfidf_features = model_data.get('max_tfidf_features', 50)
+        self.model_trained = True
+
+        print(f"Enhanced model loaded from {filepath}")
+
 class ClaimStatusNERModel(ClaimStatusEnhancedModel):
     """
     NER-enhanced Random Forest model that incorporates Named Entity Recognition features
@@ -941,7 +979,7 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
         return selected_features
 
     def train_ner_enhanced(self, nlp_features_df: pd.DataFrame, claims_df: pd.DataFrame,
-                          notes_df: pd.DataFrame, test_size: float = 0.2) -> Dict:
+                          notes_df: pd.DataFrame, test_size: float = 0.2, progress_callback=None) -> Dict:
         """
         Train the NER-enhanced model with base + TF-IDF + NER features.
 
@@ -950,15 +988,27 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
             claims_df: Claims data with status
             notes_df: Raw notes data for TF-IDF and NER
             test_size: Proportion for test set
+            progress_callback: Optional callback for progress updates
 
         Returns:
             NER-enhanced training results dictionary
         """
-        # Prepare NER-enhanced data
+        def update_progress(percent, message):
+            if progress_callback:
+                progress_callback(percent, message)
+            else:
+                print(f"{message} ({percent:.0%})")
+
+        update_progress(0.05, "🚀 Starting NER-enhanced model training...")
+
+        # Prepare NER-enhanced data (this takes time due to spaCy processing)
+        update_progress(0.1, "🔍 Extracting NER features from notes (this may take a few minutes)...")
         df = self.prepare_ner_enhanced_features(nlp_features_df, claims_df, notes_df)
 
         if len(df) < 10:
             raise ValueError("Insufficient data for training (need at least 10 samples)")
+
+        update_progress(0.4, "✅ NER feature extraction completed, preparing training data...")
 
         # Select NER-enhanced features
         self.ner_enhanced_feature_columns = self.select_ner_enhanced_features(df)
@@ -967,6 +1017,8 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
         # Prepare X and y
         X = df[self.ner_enhanced_feature_columns].fillna(0)
         y = df['granular_status']
+
+        update_progress(0.5, "🔢 Encoding labels and scaling features...")
 
         # Encode labels
         y_encoded = self.label_encoder.fit_transform(y)
@@ -980,8 +1032,9 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
             random_state=self.random_state, stratify=y_encoded
         )
 
+        update_progress(0.6, "🌲 Training Random Forest model with enhanced features...")
+
         # Train NER-enhanced model with optimized hyperparameters
-        print("Training NER-Enhanced Random Forest model with all features...")
         self.model = RandomForestClassifier(
             n_estimators=200,  # More trees for more features
             max_depth=20,  # Deeper trees
@@ -996,6 +1049,8 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
         self.model.fit(X_train, y_train)
         self.model_trained = True
 
+        update_progress(0.8, "📊 Evaluating model performance...")
+
         # Evaluate model
         train_pred = self.model.predict(X_train)
         train_accuracy = accuracy_score(y_train, train_pred)
@@ -1005,6 +1060,8 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
 
         # Cross-validation
         cv_scores = cross_val_score(self.model, X_train, y_train, cv=5, scoring='accuracy')
+
+        update_progress(0.9, "🎯 Analyzing feature importance and generating report...")
 
         # NER-enhanced feature importance analysis
         feature_importance = pd.DataFrame({
@@ -1053,6 +1110,8 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
             'test_actual': self.label_encoder.inverse_transform(y_test),
             'test_predicted': self.label_encoder.inverse_transform(test_pred)
         }
+
+        update_progress(1.0, "🎉 NER-enhanced model training completed successfully!")
 
         print(f"NER-enhanced training completed!")
         print(f"Train Accuracy: {train_accuracy:.3f}")
@@ -1133,6 +1192,156 @@ class ClaimStatusNERModel(ClaimStatusEnhancedModel):
         # We just need to return the existing prediction_df since the model was trained
         # with NER features and the parent method uses the same feature columns
         return prediction_df
+
+    def save_model(self, filepath: str):
+        """Save the NER-enhanced model including TF-IDF vectorizer and spaCy model info"""
+        if not self.model_trained:
+            raise ValueError("NER-enhanced model must be trained before saving")
+
+        # Save spaCy model name (not the model itself, too large)
+        spacy_model_name = None
+        if self.nlp_model is not None:
+            spacy_model_name = self.nlp_model.meta.get('name', 'en_core_web_sm')
+
+        model_data = {
+            'model': self.model,
+            'label_encoder': self.label_encoder,
+            'scaler': self.scaler,
+            'feature_columns': self.feature_columns,
+            'enhanced_feature_columns': getattr(self, 'enhanced_feature_columns', None),
+            'ner_enhanced_feature_columns': getattr(self, 'ner_enhanced_feature_columns', None),
+            'training_history': self.training_history,
+            'tfidf_vectorizer': self.tfidf_vectorizer,
+            'tfidf_feature_names': self.tfidf_feature_names,
+            'ner_feature_names': self.ner_feature_names,
+            'max_tfidf_features': self.max_tfidf_features,
+            'spacy_model_name': spacy_model_name
+        }
+
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        joblib.dump(model_data, filepath)
+        print(f"NER-enhanced model saved to {filepath}")
+
+    def load_model(self, filepath: str):
+        """Load the NER-enhanced model including TF-IDF vectorizer and spaCy model"""
+        model_data = joblib.load(filepath)
+
+        self.model = model_data['model']
+        self.label_encoder = model_data['label_encoder']
+        self.scaler = model_data['scaler']
+        self.feature_columns = model_data['feature_columns']
+        self.enhanced_feature_columns = model_data.get('enhanced_feature_columns', self.feature_columns)
+        self.ner_enhanced_feature_columns = model_data.get('ner_enhanced_feature_columns', self.feature_columns)
+        self.training_history = model_data['training_history']
+        self.tfidf_vectorizer = model_data['tfidf_vectorizer']
+        self.tfidf_feature_names = model_data['tfidf_feature_names']
+        self.ner_feature_names = model_data.get('ner_feature_names', [])
+        self.max_tfidf_features = model_data.get('max_tfidf_features', 50)
+
+        # Reload spaCy model
+        spacy_model_name = model_data.get('spacy_model_name', 'en_core_web_sm')
+        if spacy_model_name:
+            try:
+                self._load_spacy_model()
+                print(f"Reloaded spaCy model: {spacy_model_name}")
+            except Exception as e:
+                print(f"Warning: Could not reload spaCy model {spacy_model_name}: {e}")
+                self.nlp_model = None
+
+        self.model_trained = True
+        print(f"NER-enhanced model loaded from {filepath}")
+
+def get_available_models(model_type: str = "all") -> pd.DataFrame:
+    """
+    Get information about available saved models
+
+    Args:
+        model_type: "baseline", "enhanced", "ner", or "all"
+
+    Returns:
+        DataFrame with model information
+    """
+    import glob
+    import os
+    from datetime import datetime
+
+    model_dir = './_data/models/'
+    if not os.path.exists(model_dir):
+        return pd.DataFrame()
+
+    # Define model patterns
+    patterns = {
+        'baseline': 'baseline_rf_model*.joblib',
+        'enhanced': 'enhanced_rf_model*.joblib',
+        'ner': 'ner_rf_model*.joblib'
+    }
+
+    if model_type == "all":
+        search_patterns = patterns.values()
+    else:
+        search_patterns = [patterns.get(model_type, '*.joblib')]
+
+    models_info = []
+
+    for pattern in search_patterns:
+        model_files = glob.glob(os.path.join(model_dir, pattern))
+
+        for model_path in model_files:
+            try:
+                # Load model metadata without full model
+                model_data = joblib.load(model_path)
+
+                # Extract key information
+                training_history = model_data.get('training_history', {})
+
+                # Determine model type from filename or content
+                filename = os.path.basename(model_path)
+                if 'baseline' in filename:
+                    detected_type = 'Baseline'
+                elif 'enhanced' in filename:
+                    detected_type = 'Enhanced'
+                elif 'ner' in filename:
+                    detected_type = 'NER'
+                else:
+                    detected_type = training_history.get('model_type', 'Unknown')
+
+                model_info = {
+                    'Filename': filename,
+                    'Type': detected_type,
+                    'File Size (MB)': round(os.path.getsize(model_path) / (1024*1024), 2),
+                    'Modified': datetime.fromtimestamp(os.path.getmtime(model_path)).strftime('%Y-%m-%d %H:%M'),
+                    'Test Accuracy': f"{training_history.get('test_accuracy', 0):.3f}",
+                    'CV Accuracy': f"{training_history.get('cv_mean', 0):.3f}",
+                    'Features': training_history.get('n_features', 0),
+                    'Samples': training_history.get('n_samples', 0),
+                    'Classes': len(training_history.get('class_names', [])),
+                    'Full Path': model_path
+                }
+
+                # Add type-specific info
+                if detected_type == 'Enhanced':
+                    model_info['TF-IDF Features'] = training_history.get('n_tfidf_features', 0)
+                elif detected_type == 'NER':
+                    model_info['TF-IDF Features'] = training_history.get('n_tfidf_features', 0)
+                    model_info['NER Features'] = training_history.get('n_ner_features', 0)
+
+                models_info.append(model_info)
+
+            except Exception as e:
+                # If model can't be loaded, still show basic file info
+                models_info.append({
+                    'Filename': os.path.basename(model_path),
+                    'Type': 'Unknown (Error)',
+                    'File Size (MB)': round(os.path.getsize(model_path) / (1024*1024), 2),
+                    'Modified': datetime.fromtimestamp(os.path.getmtime(model_path)).strftime('%Y-%m-%d %H:%M'),
+                    'Error': str(e)[:50] + "..." if len(str(e)) > 50 else str(e),
+                    'Full Path': model_path
+                })
+
+    if not models_info:
+        return pd.DataFrame({'Message': ['No saved models found']})
+
+    return pd.DataFrame(models_info)
 
 def create_model_performance_summary(training_history: Dict) -> pd.DataFrame:
     """Create a summary of model performance metrics"""

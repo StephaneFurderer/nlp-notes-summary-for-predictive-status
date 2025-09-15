@@ -1,7 +1,7 @@
 from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
 from helpers.functions.plot_utils import plot_single_claim_lifetime
 from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary, analyze_claims_with_caching
-from helpers.functions.ml_models import ClaimStatusBaselineModel, ClaimStatusEnhancedModel, ClaimStatusNERModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix, plot_prediction_comparison, plot_prediction_confidence_analysis, get_open_claims_for_prediction, plot_enhanced_feature_importance, plot_model_comparison
+from helpers.functions.ml_models import ClaimStatusBaselineModel, ClaimStatusEnhancedModel, ClaimStatusNERModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix, plot_prediction_comparison, plot_prediction_confidence_analysis, get_open_claims_for_prediction, plot_enhanced_feature_importance, plot_model_comparison, get_available_models
 from helpers.functions.pattern_analysis import ClaimNotesPatternAnalyzer, create_pattern_visualizations
 import pandas as pd
 import streamlit as st
@@ -487,21 +487,34 @@ with nlp_tab4:
                     st.error(f"Error making predictions: {str(e)}")
 
         # Load existing model option
-        st.subheader("💾 Load Existing Model")
-        model_path = './_data/models/baseline_rf_model.joblib'
-        if os.path.exists(model_path):
-            if st.button("📂 Load Saved Model"):
+        st.subheader("💾 Load Existing Baseline Model")
+
+        # Show available baseline models
+        available_models = get_available_models("baseline")
+
+        if len(available_models) > 0 and 'Message' not in available_models.columns:
+            st.write("**Available Baseline Models:**")
+            display_cols = ['Filename', 'Type', 'Test Accuracy', 'CV Accuracy', 'Features', 'File Size (MB)', 'Modified']
+            display_models = available_models[display_cols]
+            st.dataframe(display_models, use_container_width=True)
+
+            # Model selection
+            model_options = available_models['Filename'].tolist()
+            selected_model = st.selectbox("Select Model to Load:", model_options)
+
+            if st.button("📂 Load Selected Baseline Model"):
                 try:
+                    selected_path = available_models[available_models['Filename'] == selected_model]['Full Path'].iloc[0]
                     model = ClaimStatusBaselineModel()
-                    model.load_model(model_path)
+                    model.load_model(selected_path)
                     st.session_state.baseline_model = model
                     st.session_state.training_results = model.training_history
-                    st.success("✅ Model loaded successfully!")
+                    st.success(f"✅ Baseline model '{selected_model}' loaded successfully!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error loading model: {str(e)}")
         else:
-            st.info("No saved model found. Train a new model first.")
+            st.info("No saved baseline models found. Train a new model first.")
 
     else:
         st.info("No NLP features available. Please ensure notes data is loaded and processed.")
@@ -893,20 +906,35 @@ with nlp_tab6:
 
         # Load existing enhanced model option
         st.subheader("💾 Load Existing Enhanced Model")
-        enhanced_model_path = './_data/models/enhanced_rf_model.joblib'
-        if os.path.exists(enhanced_model_path):
-            if st.button("📂 Load Saved Enhanced Model"):
+
+        # Show available enhanced models
+        available_enhanced_models = get_available_models("enhanced")
+
+        if len(available_enhanced_models) > 0 and 'Message' not in available_enhanced_models.columns:
+            st.write("**Available Enhanced Models:**")
+            display_cols = ['Filename', 'Type', 'Test Accuracy', 'CV Accuracy', 'Features', 'TF-IDF Features', 'File Size (MB)', 'Modified']
+            # Only show TF-IDF Features column if it exists
+            available_cols = [col for col in display_cols if col in available_enhanced_models.columns]
+            display_enhanced = available_enhanced_models[available_cols]
+            st.dataframe(display_enhanced, use_container_width=True)
+
+            # Model selection
+            enhanced_options = available_enhanced_models['Filename'].tolist()
+            selected_enhanced = st.selectbox("Select Enhanced Model to Load:", enhanced_options)
+
+            if st.button("📂 Load Selected Enhanced Model"):
                 try:
+                    selected_path = available_enhanced_models[available_enhanced_models['Filename'] == selected_enhanced]['Full Path'].iloc[0]
                     enhanced_model = ClaimStatusEnhancedModel()
-                    enhanced_model.load_model(enhanced_model_path)
+                    enhanced_model.load_model(selected_path)
                     st.session_state.enhanced_model = enhanced_model
                     st.session_state.enhanced_results = enhanced_model.training_history
-                    st.success("✅ Enhanced model loaded successfully!")
+                    st.success(f"✅ Enhanced model '{selected_enhanced}' loaded successfully!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error loading enhanced model: {str(e)}")
         else:
-            st.info("No saved enhanced model found. Train a new enhanced model first.")
+            st.info("No saved enhanced models found. Train a new enhanced model first.")
 
     else:
         if len(nlp_features_df) == 0:
@@ -976,29 +1004,51 @@ with nlp_tab7:
 
             if train_ner:
                 try:
-                    with st.spinner("Training NER-Enhanced Random Forest model (this may take longer due to NER processing)..."):
-                        # Initialize NER model
-                        ner_model = ClaimStatusNERModel(max_tfidf_features=max_tfidf_ner)
+                    st.info("🎯 Starting NER model training (this may take several minutes due to NER processing)...")
 
-                        # Train NER model
-                        ner_results = ner_model.train_ner_enhanced(
-                            nlp_features_df=nlp_features_df,
-                            claims_df=df_raw_final,
-                            notes_df=notes_df,
-                            test_size=test_size_ner
-                        )
+                    # Create progress containers
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
 
-                        # Store in session state
-                        st.session_state.ner_model = ner_model
-                        st.session_state.ner_results = ner_results
+                    def ner_progress_callback(percent, message):
+                        progress_bar.progress(percent)
+                        status_text.text(message)
 
-                        # Save model if requested
-                        if save_ner:
-                            model_path = './_data/models/ner_rf_model.joblib'
-                            os.makedirs(os.path.dirname(model_path), exist_ok=True)
-                            ner_model.save_model(model_path)
+                    # Initialize NER model
+                    ner_model = ClaimStatusNERModel(max_tfidf_features=max_tfidf_ner)
 
-                        st.success("✅ NER model training completed!")
+                    # Train NER model with progress tracking
+                    ner_results = ner_model.train_ner_enhanced(
+                        nlp_features_df=nlp_features_df,
+                        claims_df=df_raw_final,
+                        notes_df=notes_df,
+                        test_size=test_size_ner,
+                        progress_callback=ner_progress_callback
+                    )
+
+                    # Store in session state
+                    st.session_state.ner_model = ner_model
+                    st.session_state.ner_results = ner_results
+
+                    # Save model if requested
+                    if save_ner:
+                        status_text.text("💾 Saving NER model...")
+                        progress_bar.progress(0.95)
+                        model_path = './_data/models/ner_rf_model.joblib'
+                        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                        ner_model.save_model(model_path)
+
+                    # Clear progress indicators
+                    progress_bar.progress(1.0)
+                    status_text.text("✅ NER model training completed!")
+
+                    # Clean up progress display after a moment
+                    import time
+                    time.sleep(1)
+                    progress_bar.empty()
+                    status_text.empty()
+
+                    st.success("✅ NER model training completed successfully!")
 
                 except Exception as e:
                     st.error(f"❌ Error training NER model: {str(e)}")
@@ -1161,20 +1211,35 @@ with nlp_tab7:
 
             # Load existing NER model option
             st.subheader("💾 Load Existing NER Model")
-            ner_model_path = './_data/models/ner_rf_model.joblib'
-            if os.path.exists(ner_model_path):
-                if st.button("📂 Load Saved NER Model"):
+
+            # Show available NER models
+            available_ner_models = get_available_models("ner")
+
+            if len(available_ner_models) > 0 and 'Message' not in available_ner_models.columns:
+                st.write("**Available NER Models:**")
+                display_cols = ['Filename', 'Type', 'Test Accuracy', 'CV Accuracy', 'Features', 'TF-IDF Features', 'NER Features', 'File Size (MB)', 'Modified']
+                # Only show columns that exist
+                available_cols = [col for col in display_cols if col in available_ner_models.columns]
+                display_ner = available_ner_models[available_cols]
+                st.dataframe(display_ner, use_container_width=True)
+
+                # Model selection
+                ner_options = available_ner_models['Filename'].tolist()
+                selected_ner = st.selectbox("Select NER Model to Load:", ner_options)
+
+                if st.button("📂 Load Selected NER Model"):
                     try:
+                        selected_path = available_ner_models[available_ner_models['Filename'] == selected_ner]['Full Path'].iloc[0]
                         ner_model = ClaimStatusNERModel()
-                        ner_model.load_model(ner_model_path)
+                        ner_model.load_model(selected_path)
                         st.session_state.ner_model = ner_model
                         st.session_state.ner_results = ner_model.training_history
-                        st.success("✅ NER model loaded successfully!")
+                        st.success(f"✅ NER model '{selected_ner}' loaded successfully!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error loading NER model: {str(e)}")
             else:
-                st.info("No saved NER model found. Train a new NER model first.")
+                st.info("No saved NER models found. Train a new NER model first.")
 
         else:
             st.warning("⚠️ spaCy is required for NER features. Please install spaCy and an English model.")
