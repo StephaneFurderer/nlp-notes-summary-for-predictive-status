@@ -191,12 +191,13 @@ class ClaimStatusBaselineModel:
 
         return self.training_history
 
-    def predict(self, nlp_features_df: pd.DataFrame) -> pd.DataFrame:
+    def predict(self, nlp_features_df: pd.DataFrame, claims_df: pd.DataFrame = None) -> pd.DataFrame:
         """
         Make predictions on new data.
 
         Args:
             nlp_features_df: NLP features for prediction
+            claims_df: Claims DataFrame with financial features (optional)
 
         Returns:
             DataFrame with predictions and probabilities
@@ -204,8 +205,44 @@ class ClaimStatusBaselineModel:
         if not self.model_trained:
             raise ValueError("Model must be trained before making predictions")
 
-        # Prepare features
-        X = nlp_features_df[self.feature_columns].fillna(0)
+        # If claims_df is provided, merge to get financial features
+        if claims_df is not None:
+            # Get available financial columns
+            financial_cols = ['clmNum']
+            available_financial = []
+            for col in ['current_incurred', 'current_paid', 'current_expense', 'incurred_cumsum', 'paid_cumsum', 'expense_cumsum']:
+                if col in claims_df.columns:
+                    available_financial.append(col)
+
+            merge_cols = financial_cols + available_financial
+
+            # Merge NLP features with financial features
+            prediction_df = nlp_features_df.merge(
+                claims_df[merge_cols],
+                on='clmNum',
+                how='left'
+            )
+        else:
+            prediction_df = nlp_features_df.copy()
+
+        # Only use features that were used during training and are available
+        available_features = [col for col in self.feature_columns if col in prediction_df.columns]
+        missing_features = [col for col in self.feature_columns if col not in prediction_df.columns]
+
+        if missing_features:
+            print(f"Warning: Missing features for prediction: {missing_features}")
+            # Create a DataFrame with only available features
+            X = prediction_df[available_features].fillna(0)
+
+            # Add missing features as zeros
+            for feature in missing_features:
+                X[feature] = 0
+
+            # Reorder to match training feature order
+            X = X[self.feature_columns]
+        else:
+            X = prediction_df[self.feature_columns].fillna(0)
+
         X_scaled = self.scaler.transform(X)
 
         # Make predictions

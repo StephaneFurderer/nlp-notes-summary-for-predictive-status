@@ -337,7 +337,7 @@ with nlp_tab4:
                 st.subheader("🎯 Model Predictions")
 
                 try:
-                    predictions = st.session_state.baseline_model.predict(nlp_features_df)
+                    predictions = st.session_state.baseline_model.predict(nlp_features_df, df_raw_final)
 
                     # Show prediction summary
                     pred_summary = predictions['predicted_status'].value_counts()
