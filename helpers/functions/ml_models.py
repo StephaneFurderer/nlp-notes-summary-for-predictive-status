@@ -376,7 +376,7 @@ class ClaimStatusEnhancedModel(ClaimStatusBaselineModel):
             'been', 'have', 'had', 'was', 'were', 'are', 'the', 'and',
             'for', 'but', 'not', 'you', 'all', 'any', 'can', 'had',
 
-            # Auto/vehicle specific terms to remove (not relevant for property liability)
+            # pecific terms to remove (not relevant for property liability)
             'salvage', 'salvaged', 'total', 'totaled', 'totalling',
             'auto', 'vehicle', 'car', 'truck', 'motorcycle', 'collision',
             'comprehensive', 'deductible', 'mechanic',
