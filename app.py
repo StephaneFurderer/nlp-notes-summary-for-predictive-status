@@ -1,7 +1,8 @@
 from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
 from helpers.functions.plot_utils import plot_single_claim_lifetime
 from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary, analyze_claims_with_caching
-from helpers.functions.ml_models import ClaimStatusBaselineModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix, plot_prediction_comparison, plot_prediction_confidence_analysis, get_open_claims_for_prediction
+from helpers.functions.ml_models import ClaimStatusBaselineModel, ClaimStatusEnhancedModel, ClaimStatusNERModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix, plot_prediction_comparison, plot_prediction_confidence_analysis, get_open_claims_for_prediction, plot_enhanced_feature_importance, plot_model_comparison, get_available_models
+from helpers.functions.pattern_analysis import ClaimNotesPatternAnalyzer, create_pattern_visualizations
 import pandas as pd
 import streamlit as st
 import os
@@ -188,7 +189,7 @@ st.markdown("---")
 st.markdown("## 🤖 NLP Analysis")
 
 # Create tabs for different NLP views
-nlp_tab1, nlp_tab2, nlp_tab3, nlp_tab4 = st.tabs(["📊 Feature Summary", "🔍 Claim Analysis", "📈 Insights", "🤖 ML Baseline"])
+nlp_tab1, nlp_tab2, nlp_tab3, nlp_tab4, nlp_tab5, nlp_tab6, nlp_tab7 = st.tabs(["📊 Feature Summary", "🔍 Claim Analysis", "📈 Insights", "🤖 ML Baseline", "🔬 Pattern Analysis", "🚀 Enhanced Model", "🎯 NER Model"])
 
 with nlp_tab1:
     st.subheader("NLP Feature Summary")
@@ -486,24 +487,769 @@ with nlp_tab4:
                     st.error(f"Error making predictions: {str(e)}")
 
         # Load existing model option
-        st.subheader("💾 Load Existing Model")
-        model_path = './_data/models/baseline_rf_model.joblib'
-        if os.path.exists(model_path):
-            if st.button("📂 Load Saved Model"):
+        st.subheader("💾 Load Existing Baseline Model")
+
+        # Show available baseline models
+        available_models = get_available_models("baseline")
+
+        if len(available_models) > 0 and 'Message' not in available_models.columns:
+            st.write("**Available Baseline Models:**")
+            display_cols = ['Filename', 'Type', 'Test Accuracy', 'CV Accuracy', 'Features', 'File Size (MB)', 'Modified']
+            display_models = available_models[display_cols]
+            st.dataframe(display_models, use_container_width=True)
+
+            # Model selection
+            model_options = available_models['Filename'].tolist()
+            selected_model = st.selectbox("Select Model to Load:", model_options)
+
+            if st.button("📂 Load Selected Baseline Model"):
                 try:
+                    selected_path = available_models[available_models['Filename'] == selected_model]['Full Path'].iloc[0]
                     model = ClaimStatusBaselineModel()
-                    model.load_model(model_path)
+                    model.load_model(selected_path)
                     st.session_state.baseline_model = model
                     st.session_state.training_results = model.training_history
-                    st.success("✅ Model loaded successfully!")
+                    st.success(f"✅ Baseline model '{selected_model}' loaded successfully!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error loading model: {str(e)}")
         else:
-            st.info("No saved model found. Train a new model first.")
+            st.info("No saved baseline models found. Train a new model first.")
 
     else:
         st.info("No NLP features available. Please ensure notes data is loaded and processed.")
+
+with nlp_tab5:
+    st.subheader("🔬 Phase 1: Pattern Analysis for Enhanced Keywords")
+
+    if len(notes_df) > 0:
+        # Pattern analysis section
+        st.markdown("""
+        **Objective**: Discover data-driven patterns in notes to enhance our keyword system.
+
+        This analysis will:
+        - Identify most frequent words by claim status
+        - Find discriminative terms that predict outcomes
+        - Discover n-gram patterns and phrases
+        - Calculate TF-IDF features for each status
+        - Analyze temporal patterns in note language
+        """)
+
+        # Analysis controls
+        col1, col2 = st.columns(2)
+        with col1:
+            run_analysis = st.button("🚀 Run Pattern Analysis", type="primary")
+        with col2:
+            max_features = st.slider("Max TF-IDF Features", 50, 200, 100, 25)
+
+        # Initialize session state for pattern analysis
+        if 'pattern_analysis_report' not in st.session_state:
+            st.session_state.pattern_analysis_report = None
+
+        if run_analysis:
+            try:
+                with st.spinner("🔍 Analyzing note patterns across all claim statuses..."):
+                    # Initialize pattern analyzer
+                    analyzer = ClaimNotesPatternAnalyzer()
+
+                    # Generate comprehensive report
+                    report = analyzer.generate_comprehensive_report(notes_df, df_raw_final)
+
+                    # Store in session state
+                    st.session_state.pattern_analysis_report = report
+
+                    st.success("✅ Pattern analysis completed!")
+
+            except Exception as e:
+                st.error(f"❌ Error during pattern analysis: {str(e)}")
+
+        # Display results if available
+        if st.session_state.pattern_analysis_report is not None:
+            report = st.session_state.pattern_analysis_report
+
+            # Summary metrics
+            st.subheader("📊 Analysis Summary")
+            summary = report['summary']
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Notes", f"{summary['total_notes']:,}")
+            with col2:
+                st.metric("Unique Claims", f"{summary['unique_claims']:,}")
+            with col3:
+                st.metric("Status Groups", len(summary['status_groups']))
+            with col4:
+                st.metric("Analysis Date", summary['analysis_timestamp'].strftime('%Y-%m-%d'))
+
+            # Status group breakdown
+            st.subheader("📋 Claims by Status")
+            status_breakdown = pd.DataFrame([
+                {'Status': status, 'Claim Count': count}
+                for status, count in summary['status_groups'].items()
+            ])
+            st.dataframe(status_breakdown, use_container_width=True)
+
+            # Discriminative terms analysis
+            st.subheader("🎯 Most Discriminative Terms by Status")
+
+            if 'discriminative_terms' in report and report['discriminative_terms']:
+                # Create visualization
+                try:
+                    fig = create_pattern_visualizations(report)
+                    st.pyplot(fig)
+                except Exception as e:
+                    st.warning(f"Could not create visualization: {str(e)}")
+
+                # Show detailed discriminative terms
+                st.subheader("📝 Detailed Discriminative Terms")
+                selected_status = st.selectbox(
+                    "Select status to view discriminative terms:",
+                    list(report['discriminative_terms'].keys())
+                )
+
+                if selected_status and selected_status in report['discriminative_terms']:
+                    terms = report['discriminative_terms'][selected_status]
+
+                    if terms:
+                        terms_df = pd.DataFrame([
+                            {
+                                'Term': term[0],
+                                'Enrichment Factor': f"{term[1]['enrichment']:.2f}",
+                                'Count in Status': term[1]['target_count'],
+                                'Rate in Status': f"{term[1]['target_rate']:.4f}",
+                                'Count in Others': term[1]['other_count'],
+                                'Rate in Others': f"{term[1]['other_rate']:.4f}"
+                            }
+                            for term in terms[:20]  # Top 20
+                        ])
+                        st.dataframe(terms_df, use_container_width=True)
+                    else:
+                        st.info(f"No discriminative terms found for {selected_status}")
+
+            # TF-IDF Analysis
+            st.subheader("📈 TF-IDF Analysis")
+            if 'tfidf_analysis' in report and 'tfidf_scores' in report['tfidf_analysis']:
+                tfidf_data = report['tfidf_analysis']['tfidf_scores']
+
+                # Show TF-IDF scores by status
+                tfidf_status = st.selectbox(
+                    "Select status for TF-IDF analysis:",
+                    list(tfidf_data.keys())
+                )
+
+                if tfidf_status and tfidf_status in tfidf_data:
+                    tfidf_terms = tfidf_data[tfidf_status][:15]  # Top 15
+
+                    if tfidf_terms:
+                        tfidf_df = pd.DataFrame([
+                            {'Term': term[0], 'TF-IDF Score': f"{term[1]:.4f}"}
+                            for term in tfidf_terms
+                        ])
+                        st.dataframe(tfidf_df, use_container_width=True)
+                    else:
+                        st.info(f"No TF-IDF terms found for {tfidf_status}")
+
+            # N-gram patterns
+            st.subheader("🔤 N-gram Patterns")
+            if 'ngram_patterns' in report:
+                ngram_status = st.selectbox(
+                    "Select status for n-gram analysis:",
+                    list(report['ngram_patterns'].keys())
+                )
+
+                if ngram_status and ngram_status in report['ngram_patterns']:
+                    ngram_data = report['ngram_patterns'][ngram_status]
+
+                    for ngram_type in ['2gram', '3gram']:
+                        if ngram_type in ngram_data and ngram_data[ngram_type]:
+                            st.write(f"**{ngram_type.upper()} Patterns:**")
+
+                            # Sort by frequency and show top patterns
+                            sorted_patterns = sorted(
+                                ngram_data[ngram_type].items(),
+                                key=lambda x: x[1],
+                                reverse=True
+                            )[:10]
+
+                            patterns_df = pd.DataFrame([
+                                {'Pattern': pattern, 'Frequency': freq}
+                                for pattern, freq in sorted_patterns
+                            ])
+                            st.dataframe(patterns_df, use_container_width=True)
+
+            # Download report option
+            st.subheader("📥 Export Analysis")
+            if st.button("💾 Prepare Download Report"):
+                # Create simplified report for download
+                download_data = {
+                    'summary': summary,
+                    'discriminative_terms': {
+                        status: [{'term': t[0], 'enrichment': t[1]['enrichment'], 'count': t[1]['target_count']}
+                                for t in terms[:10]]
+                        for status, terms in report['discriminative_terms'].items()
+                    }
+                }
+
+                import json
+                report_json = json.dumps(download_data, indent=2, default=str)
+                st.download_button(
+                    label="📥 Download Pattern Analysis Report",
+                    data=report_json,
+                    file_name=f"pattern_analysis_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M')}.json",
+                    mime="application/json"
+                )
+
+    else:
+        st.info("No notes data available. Please ensure notes are loaded.")
+
+with nlp_tab6:
+    st.subheader("🚀 Enhanced Model with TF-IDF Features")
+
+    if len(nlp_features_df) > 0 and len(notes_df) > 0:
+        # Enhanced model training section
+        st.markdown("""
+        **Enhanced Model**: Combines baseline NLP features with TF-IDF features discovered through pattern analysis.
+
+        **Key Improvements**:
+        - Incorporates discriminative terms from pattern analysis
+        - Uses TF-IDF vectorization for better text representation
+        - Enhanced feature set for improved prediction accuracy
+        """)
+
+        # Model training controls
+        st.subheader("Enhanced Model Training")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            train_enhanced = st.button("🚀 Train Enhanced Model", type="primary")
+        with col2:
+            test_size_enhanced = st.slider("Test Set Size (Enhanced)", 0.1, 0.4, 0.2, 0.05, key="enhanced_test_size")
+        with col3:
+            max_tfidf_features = st.slider("Max TF-IDF Features", 25, 100, 50, 5)
+        with col4:
+            save_enhanced = st.checkbox("Save Enhanced Model", value=True)
+
+        # Initialize session state for enhanced model
+        if 'enhanced_model' not in st.session_state:
+            st.session_state.enhanced_model = None
+            st.session_state.enhanced_results = None
+
+        if train_enhanced:
+            try:
+                with st.spinner("Training Enhanced Random Forest model with TF-IDF features..."):
+                    # Initialize enhanced model
+                    enhanced_model = ClaimStatusEnhancedModel(max_tfidf_features=max_tfidf_features)
+
+                    # Train enhanced model
+                    enhanced_results = enhanced_model.train_enhanced(
+                        nlp_features_df=nlp_features_df,
+                        claims_df=df_raw_final,
+                        notes_df=notes_df,
+                        test_size=test_size_enhanced
+                    )
+
+                    # Store in session state
+                    st.session_state.enhanced_model = enhanced_model
+                    st.session_state.enhanced_results = enhanced_results
+
+                    # Save model if requested
+                    if save_enhanced:
+                        model_path = './_data/models/enhanced_rf_model.joblib'
+                        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                        enhanced_model.save_model(model_path)
+
+                    st.success("✅ Enhanced model training completed!")
+
+            except Exception as e:
+                st.error(f"❌ Error training enhanced model: {str(e)}")
+                st.exception(e)
+
+        # Display enhanced model results
+        if st.session_state.enhanced_results is not None:
+            results = st.session_state.enhanced_results
+
+            # Performance metrics
+            st.subheader("📊 Enhanced Model Performance")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Train Accuracy", f"{results['train_accuracy']:.3f}")
+            with col2:
+                st.metric("Test Accuracy", f"{results['test_accuracy']:.3f}")
+            with col3:
+                st.metric("CV Mean", f"{results['cv_mean']:.3f}")
+            with col4:
+                st.metric("Total Features", results['n_features'])
+            with col5:
+                st.metric("TF-IDF Features", results['n_tfidf_features'])
+
+            # Performance comparison with baseline (if available)
+            if st.session_state.training_results is not None:
+                st.subheader("📈 Model Comparison")
+                baseline_results = st.session_state.training_results
+
+                # Create comparison visualization
+                try:
+                    fig_comparison = plot_model_comparison(baseline_results, results)
+                    st.pyplot(fig_comparison)
+                except Exception as e:
+                    st.warning(f"Could not create comparison plot: {str(e)}")
+
+                # Comparison metrics table
+                comparison_data = {
+                    'Metric': ['Train Accuracy', 'Test Accuracy', 'CV Accuracy', 'Number of Features'],
+                    'Baseline': [
+                        f"{baseline_results['train_accuracy']:.3f}",
+                        f"{baseline_results['test_accuracy']:.3f}",
+                        f"{baseline_results['cv_mean']:.3f}",
+                        baseline_results['n_features']
+                    ],
+                    'Enhanced': [
+                        f"{results['train_accuracy']:.3f}",
+                        f"{results['test_accuracy']:.3f}",
+                        f"{results['cv_mean']:.3f}",
+                        results['n_features']
+                    ],
+                    'Improvement': [
+                        f"{(results['train_accuracy'] - baseline_results['train_accuracy']):.3f}",
+                        f"{(results['test_accuracy'] - baseline_results['test_accuracy']):.3f}",
+                        f"{(results['cv_mean'] - baseline_results['cv_mean']):.3f}",
+                        f"+{results['n_features'] - baseline_results['n_features']}"
+                    ]
+                }
+                comparison_df = pd.DataFrame(comparison_data)
+                st.dataframe(comparison_df, use_container_width=True)
+
+            # Enhanced feature importance analysis
+            st.subheader("🎯 Enhanced Feature Importance")
+            top_n_enhanced = st.slider("Number of top features to display", 5, 30, 15, key="enhanced_top_n")
+
+            try:
+                fig_enhanced = plot_enhanced_feature_importance(results, top_n_enhanced)
+                st.pyplot(fig_enhanced)
+            except Exception as e:
+                st.warning(f"Could not create enhanced feature importance plot: {str(e)}")
+
+            # Show detailed feature importance tables
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.write("**Top Base Features:**")
+                if 'base_importance' in results and len(results['base_importance']) > 0:
+                    st.dataframe(results['base_importance'], use_container_width=True)
+                else:
+                    st.info("No base features in top importance")
+
+            with col2:
+                st.write("**Top TF-IDF Features:**")
+                if 'tfidf_importance' in results and len(results['tfidf_importance']) > 0:
+                    # Clean feature names for display
+                    tfidf_display = results['tfidf_importance'].copy()
+                    tfidf_display['clean_feature'] = tfidf_display['feature'].str.replace('tfidf_', '')
+                    tfidf_display = tfidf_display[['clean_feature', 'importance']].rename(columns={'clean_feature': 'feature'})
+                    st.dataframe(tfidf_display, use_container_width=True)
+                else:
+                    st.info("No TF-IDF features in top importance")
+
+            # Enhanced model predictions
+            if st.session_state.enhanced_model is not None:
+                st.subheader("🎯 Enhanced Model Predictions")
+
+                # Predictions on open claims
+                st.write("**Open Claims Predictions:**")
+                open_claims_df = get_open_claims_for_prediction(df_raw_final)
+
+                if len(open_claims_df) > 0:
+                    # Get NLP features for open claims
+                    open_nlp_features = nlp_features_df[nlp_features_df['clmNum'].isin(open_claims_df['clmNum'])]
+                    # Get notes for open claims
+                    open_notes = notes_df[notes_df['clmNum'].isin(open_claims_df['clmNum'])]
+
+                    if len(open_nlp_features) > 0 and len(open_notes) > 0:
+                        try:
+                            # Make enhanced predictions
+                            enhanced_predictions = st.session_state.enhanced_model.predict_enhanced(
+                                open_nlp_features, open_notes, open_claims_df
+                            )
+
+                            # Show prediction summary
+                            pred_summary = enhanced_predictions['predicted_status'].value_counts()
+                            st.write("**Enhanced Prediction Summary:**")
+                            for status, count in pred_summary.items():
+                                st.write(f"- {status}: {count} claims")
+
+                            # Show confidence analysis
+                            avg_confidence = enhanced_predictions['prediction_confidence'].mean()
+                            high_conf_count = len(enhanced_predictions[enhanced_predictions['prediction_confidence'] > 0.8])
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Average Confidence", f"{avg_confidence:.3f}")
+                            with col2:
+                                st.metric("High Confidence (>80%)", f"{high_conf_count}/{len(enhanced_predictions)}")
+
+                            # Show most confident predictions
+                            st.write("**Most Confident Enhanced Predictions:**")
+                            prob_cols = ['clmNum', 'predicted_status', 'prediction_confidence']
+                            all_prob_cols = ['prob_PAID', 'prob_PAID_REOPENED', 'prob_DENIED',
+                                           'prob_DENIED_REOPENED', 'prob_CLOSED', 'prob_CLOSED_REOPENED']
+                            available_prob_cols = [col for col in all_prob_cols if col in enhanced_predictions.columns]
+
+                            display_cols = prob_cols + available_prob_cols
+                            top_enhanced_predictions = enhanced_predictions.nlargest(10, 'prediction_confidence')[display_cols]
+                            st.dataframe(top_enhanced_predictions, use_container_width=True)
+
+                        except Exception as e:
+                            st.error(f"Error making enhanced predictions: {str(e)}")
+                    else:
+                        st.warning("No NLP features or notes found for open claims")
+                else:
+                    st.info("No open claims found for prediction")
+
+        # Load existing enhanced model option
+        st.subheader("💾 Load Existing Enhanced Model")
+
+        # Show available enhanced models
+        available_enhanced_models = get_available_models("enhanced")
+
+        if len(available_enhanced_models) > 0 and 'Message' not in available_enhanced_models.columns:
+            st.write("**Available Enhanced Models:**")
+            display_cols = ['Filename', 'Type', 'Test Accuracy', 'CV Accuracy', 'Features', 'TF-IDF Features', 'File Size (MB)', 'Modified']
+            # Only show TF-IDF Features column if it exists
+            available_cols = [col for col in display_cols if col in available_enhanced_models.columns]
+            display_enhanced = available_enhanced_models[available_cols]
+            st.dataframe(display_enhanced, use_container_width=True)
+
+            # Model selection
+            enhanced_options = available_enhanced_models['Filename'].tolist()
+            selected_enhanced = st.selectbox("Select Enhanced Model to Load:", enhanced_options)
+
+            if st.button("📂 Load Selected Enhanced Model"):
+                try:
+                    selected_path = available_enhanced_models[available_enhanced_models['Filename'] == selected_enhanced]['Full Path'].iloc[0]
+                    enhanced_model = ClaimStatusEnhancedModel()
+                    enhanced_model.load_model(selected_path)
+                    st.session_state.enhanced_model = enhanced_model
+                    st.session_state.enhanced_results = enhanced_model.training_history
+                    st.success(f"✅ Enhanced model '{selected_enhanced}' loaded successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error loading enhanced model: {str(e)}")
+        else:
+            st.info("No saved enhanced models found. Train a new enhanced model first.")
+
+    else:
+        if len(nlp_features_df) == 0:
+            st.info("No NLP features available. Please ensure notes data is loaded and processed.")
+        if len(notes_df) == 0:
+            st.info("No notes data available. Please ensure notes are loaded.")
+
+with nlp_tab7:
+    st.subheader("🎯 NER Model with Named Entity Recognition")
+
+    if len(nlp_features_df) > 0 and len(notes_df) > 0:
+        # NER model description
+        st.markdown("""
+        **NER Model**: Builds on the Enhanced Model by adding Named Entity Recognition features.
+
+        **NER Features Include**:
+        - **Person entities**: Names mentioned in notes
+        - **Organizations**: Companies, institutions referenced
+        - **Locations**: Places, cities, states mentioned
+        - **Money amounts**: Financial figures detected
+        - **Dates/Times**: Temporal references
+        - **Facilities**: Buildings, properties mentioned
+        - **Entity metrics**: Density, diversity, uniqueness
+
+        **Total Feature Stack**: Base NLP + Financial + TF-IDF + NER
+        """)
+
+        # Check spaCy installation
+        try:
+            import spacy
+            spacy_available = True
+            # Try to detect available models
+            available_models = []
+            for model_name in ['en_core_web_lg', 'en_core_web_md', 'en_core_web_sm']:
+                try:
+                    spacy.load(model_name)
+                    available_models.append(model_name)
+                except OSError:
+                    continue
+
+            if available_models:
+                st.success(f"✅ spaCy available with models: {', '.join(available_models)}")
+            else:
+                st.warning("⚠️ spaCy installed but no English models found. Install with: `python -m spacy download en_core_web_sm`")
+                spacy_available = False
+        except ImportError:
+            st.error("❌ spaCy not installed. Install with: `pip install spacy`")
+            spacy_available = False
+
+        if spacy_available:
+            # NER model training controls
+            st.subheader("NER Model Training")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                train_ner = st.button("🎯 Train NER Model", type="primary")
+            with col2:
+                test_size_ner = st.slider("Test Set Size (NER)", 0.1, 0.4, 0.2, 0.05, key="ner_test_size")
+            with col3:
+                max_tfidf_ner = st.slider("Max TF-IDF Features (NER)", 25, 100, 50, 5, key="ner_tfidf")
+            with col4:
+                save_ner = st.checkbox("Save NER Model", value=True)
+
+            # Initialize session state for NER model
+            if 'ner_model' not in st.session_state:
+                st.session_state.ner_model = None
+                st.session_state.ner_results = None
+
+            if train_ner:
+                try:
+                    st.info("🎯 Starting NER model training (this may take several minutes due to NER processing)...")
+
+                    # Create progress containers
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+
+                    def ner_progress_callback(percent, message):
+                        progress_bar.progress(percent)
+                        status_text.text(message)
+
+                    # Initialize NER model
+                    ner_model = ClaimStatusNERModel(max_tfidf_features=max_tfidf_ner)
+
+                    # Train NER model with progress tracking
+                    ner_results = ner_model.train_ner_enhanced(
+                        nlp_features_df=nlp_features_df,
+                        claims_df=df_raw_final,
+                        notes_df=notes_df,
+                        test_size=test_size_ner,
+                        progress_callback=ner_progress_callback
+                    )
+
+                    # Store in session state
+                    st.session_state.ner_model = ner_model
+                    st.session_state.ner_results = ner_results
+
+                    # Save model if requested
+                    if save_ner:
+                        status_text.text("💾 Saving NER model...")
+                        progress_bar.progress(0.95)
+                        model_path = './_data/models/ner_rf_model.joblib'
+                        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                        ner_model.save_model(model_path)
+
+                    # Clear progress indicators
+                    progress_bar.progress(1.0)
+                    status_text.text("✅ NER model training completed!")
+
+                    # Clean up progress display after a moment
+                    import time
+                    time.sleep(1)
+                    progress_bar.empty()
+                    status_text.empty()
+
+                    st.success("✅ NER model training completed successfully!")
+
+                except Exception as e:
+                    st.error(f"❌ Error training NER model: {str(e)}")
+                    st.exception(e)
+
+            # Display NER model results
+            if st.session_state.ner_results is not None:
+                results = st.session_state.ner_results
+
+                # Performance metrics
+                st.subheader("📊 NER Model Performance")
+                col1, col2, col3, col4, col5, col6 = st.columns(6)
+                with col1:
+                    st.metric("Train Accuracy", f"{results['train_accuracy']:.3f}")
+                with col2:
+                    st.metric("Test Accuracy", f"{results['test_accuracy']:.3f}")
+                with col3:
+                    st.metric("CV Mean", f"{results['cv_mean']:.3f}")
+                with col4:
+                    st.metric("Total Features", results['n_features'])
+                with col5:
+                    st.metric("TF-IDF Features", results['n_tfidf_features'])
+                with col6:
+                    st.metric("NER Features", results['n_ner_features'])
+
+                # Three-way model comparison (if available)
+                if st.session_state.training_results is not None and st.session_state.enhanced_results is not None:
+                    st.subheader("📈 Three-Way Model Comparison")
+
+                    # Comparison metrics table
+                    baseline_results = st.session_state.training_results
+                    enhanced_results = st.session_state.enhanced_results
+
+                    comparison_data = {
+                        'Metric': ['Train Accuracy', 'Test Accuracy', 'CV Accuracy', 'Total Features', 'Base Features', 'TF-IDF Features', 'NER Features'],
+                        'Baseline': [
+                            f"{baseline_results['train_accuracy']:.3f}",
+                            f"{baseline_results['test_accuracy']:.3f}",
+                            f"{baseline_results['cv_mean']:.3f}",
+                            baseline_results['n_features'],
+                            baseline_results['n_features'],
+                            0,
+                            0
+                        ],
+                        'Enhanced': [
+                            f"{enhanced_results['train_accuracy']:.3f}",
+                            f"{enhanced_results['test_accuracy']:.3f}",
+                            f"{enhanced_results['cv_mean']:.3f}",
+                            enhanced_results['n_features'],
+                            enhanced_results['n_features'] - enhanced_results['n_tfidf_features'],
+                            enhanced_results['n_tfidf_features'],
+                            0
+                        ],
+                        'NER': [
+                            f"{results['train_accuracy']:.3f}",
+                            f"{results['test_accuracy']:.3f}",
+                            f"{results['cv_mean']:.3f}",
+                            results['n_features'],
+                            results['n_base_features'],
+                            results['n_tfidf_features'],
+                            results['n_ner_features']
+                        ],
+                        'NER vs Enhanced': [
+                            f"{(results['train_accuracy'] - enhanced_results['train_accuracy']):.3f}",
+                            f"{(results['test_accuracy'] - enhanced_results['test_accuracy']):.3f}",
+                            f"{(results['cv_mean'] - enhanced_results['cv_mean']):.3f}",
+                            f"+{results['n_features'] - enhanced_results['n_features']}",
+                            "0",
+                            "0",
+                            f"+{results['n_ner_features']}"
+                        ]
+                    }
+                    comparison_df = pd.DataFrame(comparison_data)
+                    st.dataframe(comparison_df, use_container_width=True)
+
+                # NER feature importance analysis
+                st.subheader("🎯 NER Feature Importance Breakdown")
+
+                # Show feature importance by category
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.write("**Top Base Features:**")
+                    if 'base_importance' in results and len(results['base_importance']) > 0:
+                        st.dataframe(results['base_importance'], use_container_width=True)
+                    else:
+                        st.info("No base features in top importance")
+
+                with col2:
+                    st.write("**Top TF-IDF Features:**")
+                    if 'tfidf_importance' in results and len(results['tfidf_importance']) > 0:
+                        tfidf_display = results['tfidf_importance'].copy()
+                        tfidf_display['clean_feature'] = tfidf_display['feature'].str.replace('tfidf_', '')
+                        tfidf_display = tfidf_display[['clean_feature', 'importance']].rename(columns={'clean_feature': 'feature'})
+                        st.dataframe(tfidf_display, use_container_width=True)
+                    else:
+                        st.info("No TF-IDF features in top importance")
+
+                with col3:
+                    st.write("**Top NER Features:**")
+                    if 'ner_importance' in results and len(results['ner_importance']) > 0:
+                        st.dataframe(results['ner_importance'], use_container_width=True)
+                    else:
+                        st.info("No NER features in top importance")
+
+                # NER model predictions
+                if st.session_state.ner_model is not None:
+                    st.subheader("🎯 NER Model Predictions")
+
+                    # Predictions on open claims
+                    st.write("**Open Claims NER Predictions:**")
+                    open_claims_df = get_open_claims_for_prediction(df_raw_final)
+
+                    if len(open_claims_df) > 0:
+                        # Get features for open claims
+                        open_nlp_features = nlp_features_df[nlp_features_df['clmNum'].isin(open_claims_df['clmNum'])]
+                        open_notes = notes_df[notes_df['clmNum'].isin(open_claims_df['clmNum'])]
+
+                        if len(open_nlp_features) > 0 and len(open_notes) > 0:
+                            try:
+                                # Make NER predictions
+                                ner_predictions = st.session_state.ner_model.predict_ner_enhanced(
+                                    open_nlp_features, open_notes, open_claims_df
+                                )
+
+                                # Show prediction summary
+                                pred_summary = ner_predictions['predicted_status'].value_counts()
+                                st.write("**NER Prediction Summary:**")
+                                for status, count in pred_summary.items():
+                                    st.write(f"- {status}: {count} claims")
+
+                                # Show confidence analysis
+                                avg_confidence = ner_predictions['prediction_confidence'].mean()
+                                high_conf_count = len(ner_predictions[ner_predictions['prediction_confidence'] > 0.8])
+
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.metric("Average Confidence", f"{avg_confidence:.3f}")
+                                with col2:
+                                    st.metric("High Confidence (>80%)", f"{high_conf_count}/{len(ner_predictions)}")
+
+                                # Show most confident predictions
+                                st.write("**Most Confident NER Predictions:**")
+                                prob_cols = ['clmNum', 'predicted_status', 'prediction_confidence']
+                                all_prob_cols = ['prob_PAID', 'prob_PAID_REOPENED', 'prob_DENIED',
+                                               'prob_DENIED_REOPENED', 'prob_CLOSED', 'prob_CLOSED_REOPENED']
+                                available_prob_cols = [col for col in all_prob_cols if col in ner_predictions.columns]
+
+                                display_cols = prob_cols + available_prob_cols
+                                top_ner_predictions = ner_predictions.nlargest(10, 'prediction_confidence')[display_cols]
+                                st.dataframe(top_ner_predictions, use_container_width=True)
+
+                            except Exception as e:
+                                st.error(f"Error making NER predictions: {str(e)}")
+                                st.exception(e)
+                        else:
+                            st.warning("No NLP features or notes found for open claims")
+                    else:
+                        st.info("No open claims found for prediction")
+
+            # Load existing NER model option
+            st.subheader("💾 Load Existing NER Model")
+
+            # Show available NER models
+            available_ner_models = get_available_models("ner")
+
+            if len(available_ner_models) > 0 and 'Message' not in available_ner_models.columns:
+                st.write("**Available NER Models:**")
+                display_cols = ['Filename', 'Type', 'Test Accuracy', 'CV Accuracy', 'Features', 'TF-IDF Features', 'NER Features', 'File Size (MB)', 'Modified']
+                # Only show columns that exist
+                available_cols = [col for col in display_cols if col in available_ner_models.columns]
+                display_ner = available_ner_models[available_cols]
+                st.dataframe(display_ner, use_container_width=True)
+
+                # Model selection
+                ner_options = available_ner_models['Filename'].tolist()
+                selected_ner = st.selectbox("Select NER Model to Load:", ner_options)
+
+                if st.button("📂 Load Selected NER Model"):
+                    try:
+                        selected_path = available_ner_models[available_ner_models['Filename'] == selected_ner]['Full Path'].iloc[0]
+                        ner_model = ClaimStatusNERModel()
+                        ner_model.load_model(selected_path)
+                        st.session_state.ner_model = ner_model
+                        st.session_state.ner_results = ner_model.training_history
+                        st.success(f"✅ NER model '{selected_ner}' loaded successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error loading NER model: {str(e)}")
+            else:
+                st.info("No saved NER models found. Train a new NER model first.")
+
+        else:
+            st.warning("⚠️ spaCy is required for NER features. Please install spaCy and an English model.")
+            st.code("pip install spacy\npython -m spacy download en_core_web_sm")
+
+    else:
+        if len(nlp_features_df) == 0:
+            st.info("No NLP features available. Please ensure notes data is loaded and processed.")
+        if len(notes_df) == 0:
+            st.info("No notes data available. Please ensure notes are loaded.")
 
 # Display notes timeline
 if claim_filter:
