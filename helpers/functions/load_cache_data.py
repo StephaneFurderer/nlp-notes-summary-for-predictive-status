@@ -22,8 +22,14 @@ class DataOrganizer:
     """
     Handles organization of input data into structured folders by extraction date
     """
-    
-    def __init__(self, base_data_dir: str = "_data"):
+
+    def __init__(self, base_data_dir: str = None):
+        if base_data_dir is None:
+            # Find the project root directory (where this file is located)
+            current_file = os.path.abspath(__file__)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            base_data_dir = os.path.join(project_root, "_data")
+
         self.base_data_dir = base_data_dir
     
     def create_folder_structure(self, extraction_date: str) -> str:
@@ -133,8 +139,14 @@ class CacheManager:
     """
     Handles all caching operations for processed claims data
     """
-    
-    def __init__(self, base_data_dir: str = "_data"):
+
+    def __init__(self, base_data_dir: str = None):
+        if base_data_dir is None:
+            # Find the project root directory (where this file is located)
+            current_file = os.path.abspath(__file__)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            base_data_dir = os.path.join(project_root, "_data")
+
         self.base_data_dir = base_data_dir
         self.data_organizer = DataOrganizer(base_data_dir)
     
@@ -400,7 +412,7 @@ class CacheManager:
                         'cache_size_mb': round(cache_size, 1),
                         'input_files': meta.get('input_files', [])
                     })
-                except Exception as e:
+                except Exception:
                     # Skip corrupted metadata files
                     continue
         
@@ -434,8 +446,14 @@ class DataLoader:
     """
     Handles loading of raw data from various sources
     """
-    
-    def __init__(self, base_data_dir: str = "_data"):
+
+    def __init__(self, base_data_dir: str = None):
+        if base_data_dir is None:
+            # Find the project root directory (where this file is located)
+            current_file = os.path.abspath(__file__)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+            base_data_dir = os.path.join(project_root, "_data")
+
         self.base_data_dir = base_data_dir
         self.data_organizer = DataOrganizer(base_data_dir)
         self.cache_manager = CacheManager(base_data_dir)
