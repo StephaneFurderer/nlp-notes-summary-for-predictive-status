@@ -33,7 +33,10 @@ class StandardizedClaimsTransformer:
         self.standardized_claims: Dict[str, StandardizedClaim] = {}
         
         # Normalization parameters
-        self.normalization_params: Optional[Dict[str, Any]] = None
+        self.normalization_params = {
+            'paid': {'mean': None, 'std': None},
+            'expense': {'mean': None, 'std': None}
+        }
         self.period_normalization_params: Optional[Dict[str, Any]] = None
         self.normalization_computed = False
         self.period_normalization_computed = False
