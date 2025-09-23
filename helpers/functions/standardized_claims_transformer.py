@@ -80,8 +80,16 @@ class StandardizedClaimsTransformer:
         
         # Step 2: Calculate normalization parameters for each payment type
         payment_types = ['paid', 'expense']
-        
+
+        # Check which payment columns actually exist in the dataframe
+        available_columns = df_completed_txn.columns.tolist()
+        print(f"Available columns in df_completed_txn: {available_columns}")
+
         for payment_type in payment_types:
+            if payment_type not in df_completed_txn.columns:
+                print(f"Warning: Column '{payment_type}' not found in dataframe. Skipping normalization for this column.")
+                continue
+
             # Get only positive incremental payments (exclude zeros)
             positive_payments = df_completed_txn[df_completed_txn[payment_type] > 0][payment_type]
             
@@ -121,8 +129,12 @@ class StandardizedClaimsTransformer:
         
         # Apply z-score normalization to each payment type
         for payment_type in ['paid', 'expense']:
+            if payment_type not in df_normalized.columns:
+                print(f"Warning: Column '{payment_type}' not found. Skipping normalization.")
+                continue
+
             params = self.normalization_params[payment_type]
-            
+
             if params['mean'] is not None and params['std'] is not None and params['std'] > 0:
                 # Apply normalization: (x - mean) / std
                 df_normalized[f'{payment_type}_normalized'] = (
@@ -179,6 +191,10 @@ class StandardizedClaimsTransformer:
         colors = ['blue', 'red']
         
         for i, payment_type in enumerate(payment_types):
+            if payment_type not in df_completed_txn.columns:
+                print(f"Warning: Column '{payment_type}' not found in dataframe. Skipping visualization.")
+                continue
+
             # Get positive values only
             original_positive = df_completed_txn[df_completed_txn[payment_type] > 0][payment_type]
             normalized_positive = df_normalized[df_normalized[payment_type] > 0][f'{payment_type}_normalized']
@@ -253,6 +269,10 @@ class StandardizedClaimsTransformer:
         print("="*60)
         
         for payment_type in payment_types:
+            if payment_type not in df_completed_txn.columns:
+                print(f"Warning: Column '{payment_type}' not found. Skipping summary statistics.")
+                continue
+
             params = self.normalization_params[payment_type]
             original_positive = df_completed_txn[df_completed_txn[payment_type] > 0][payment_type]
             normalized_positive = df_normalized[df_normalized[payment_type] > 0][f'{payment_type}_normalized']
@@ -431,7 +451,7 @@ class StandardizedClaimsTransformer:
                         'input_files': meta.get('input_files', []),
                         'type': 'structured'
                     })
-                except Exception as e:
+                except Exception:
                     # Skip corrupted metadata files
                     continue
         
@@ -468,7 +488,7 @@ class StandardizedClaimsTransformer:
                         'input_files': meta.get('input_files', []),
                         'type': 'legacy'
                     })
-                except Exception as e:
+                except Exception:
                     # Skip corrupted metadata files
                     continue
         
