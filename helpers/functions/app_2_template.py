@@ -952,19 +952,24 @@ class ClaimsAnalysisTemplate:
                 with st.spinner("Processing all claims with vectorized approach..."):
                     # Determine extraction date and input files based on selection
                     extraction_date = None
-                    input_files = ["_data/clm_with_amt.csv"]  # Default fallback
+                    input_files = []
                     
                     if available_caches and selected_extraction_date:
                         extraction_date = selected_extraction_date
                         # Get organized input files for this extraction date
                         input_files = self.data_organizer.get_organized_files(extraction_date)
                     
-                    periods_all_df = self.transformer.transform_claims_data_vectorized(
-                        df_raw_txn_filtered, 
-                        force_recompute=force_recompute,
-                        input_files=input_files,
-                        extraction_date=extraction_date
-                    )
+                    # Only process if we have an extraction date and input files
+                    if extraction_date and input_files:
+                        periods_all_df = self.transformer.transform_claims_data_vectorized(
+                            df_raw_txn_filtered, 
+                            force_recompute=force_recompute,
+                            input_files=input_files,
+                            extraction_date=extraction_date
+                        )
+                    else:
+                        st.error("❌ No organized data found. Please organize your data by extraction date first.")
+                        periods_all_df = pd.DataFrame()
                 
                 if not periods_all_df.empty:
                     st.dataframe(periods_all_df, use_container_width=True)
