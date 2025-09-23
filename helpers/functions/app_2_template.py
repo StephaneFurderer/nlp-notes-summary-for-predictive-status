@@ -892,12 +892,28 @@ class ClaimsAnalysisTemplate:
                 st.dataframe(df_raw_txn_filtered_display, use_container_width=True)
 
                 st.subheader("📊 All Periods (All Claims)")
+                
+                # Cache management
+                col1, col2 = st.columns([3, 1])
+                with col2:
+                    force_recompute = st.button("🔄 Force Recompute", help="Recompute period data even if cache exists")
+                
                 with st.spinner("Processing all claims with vectorized approach..."):
-                    periods_all_df = self.transformer.transform_claims_data_vectorized(df_raw_txn_filtered)
+                    periods_all_df = self.transformer.transform_claims_data_vectorized(
+                        df_raw_txn_filtered, 
+                        force_recompute=force_recompute
+                    )
                 
                 if not periods_all_df.empty:
                     st.dataframe(periods_all_df, use_container_width=True)
                     st.info(f"📈 **Dataset Summary:** {len(periods_all_df):,} periods from {periods_all_df['clmNum'].nunique():,} claims")
+                    
+                    # Show cache info
+                    import os
+                    cache_file = "_data/period_clm.parquet"
+                    if os.path.exists(cache_file):
+                        cache_size = os.path.getsize(cache_file) / (1024 * 1024)  # MB
+                        st.success(f"💾 **Cache Status:** Data cached in {cache_file} ({cache_size:.1f} MB)")
                 else:
                     st.warning("No period data available")
                 

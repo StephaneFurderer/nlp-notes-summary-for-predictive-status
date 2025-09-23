@@ -319,12 +319,41 @@ class StandardizedClaimsTransformer:
         print(f"Transformation completed: {len(standardized_claims)} claims, {total_periods} total periods")
         return dataset
     
-    def transform_claims_data_vectorized(self, df_txn: pd.DataFrame) -> pd.DataFrame:
+    def transform_claims_data_vectorized(self, df_txn: pd.DataFrame, force_recompute: bool = False) -> pd.DataFrame:
         """
-        Fast vectorized transformation to get period data for all claims
+        Fast vectorized transformation to get period data for all claims with caching
         
-        Returns a DataFrame with all periods from all claims for fast analysis
+        Returns a DataFrame with all periods from all claims for fast analysis.
+        Uses parquet file caching for performance with large datasets.
+        
+        Args:
+            df_txn: Raw transaction dataframe
+            force_recompute: If True, recompute even if cache exists
         """
+        import os
+        
+        # Cache file path
+        cache_file = "_data/period_clm.parquet"
+        
+        # Check if cache exists and is valid
+        if not force_recompute and os.path.exists(cache_file):
+            try:
+                # Load from cache
+                cached_df = pd.read_parquet(cache_file)
+                
+                # Basic validation: check if cache has expected columns
+                expected_cols = ['clmNum', 'period', 'incremental_paid', 'incremental_expense', 'cumulative_paid', 'cumulative_expense']
+                if all(col in cached_df.columns for col in expected_cols):
+                    print(f"📁 Loaded cached period data: {len(cached_df):,} periods from {cached_df['clmNum'].nunique():,} claims")
+                    return cached_df
+                else:
+                    print("⚠️ Cached data missing expected columns, recomputing...")
+            except Exception as e:
+                print(f"⚠️ Error loading cached data: {e}, recomputing...")
+        
+        # Compute fresh data
+        print("🔄 Computing period data (this may take a while for large datasets)...")
+        
         if len(df_txn) == 0:
             return pd.DataFrame()
         
@@ -356,7 +385,21 @@ class StandardizedClaimsTransformer:
         
         # Convert to DataFrame
         if all_periods:
-            return pd.DataFrame(all_periods)
+            result_df = pd.DataFrame(all_periods)
+            
+            # Save to cache
+            try:
+                # Ensure _data directory exists
+                os.makedirs("_data", exist_ok=True)
+                
+                # Save as parquet
+                result_df.to_parquet(cache_file, index=False)
+                print(f"💾 Cached period data: {len(result_df):,} periods from {result_df['clmNum'].nunique():,} claims")
+                
+            except Exception as e:
+                print(f"⚠️ Could not save cache: {e}")
+            
+            return result_df
         else:
             return pd.DataFrame()
     
