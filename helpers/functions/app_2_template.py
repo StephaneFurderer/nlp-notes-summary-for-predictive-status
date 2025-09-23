@@ -17,6 +17,7 @@ from typing import Optional, Tuple, Dict, Any
 # Import our standardization functions
 from helpers.functions.standardized_claims_transformer import StandardizedClaimsTransformer
 from helpers.functions.standardized_claims_schema import StandardizationConfig
+from helpers.functions.load_cache_data import CacheManager, DataOrganizer, DataLoader
 
 
 class ClaimsAnalysisTemplate:
@@ -28,6 +29,12 @@ class ClaimsAnalysisTemplate:
     def __init__(self, app_title: str, is_demo: bool = False):
         self.app_title = app_title
         self.is_demo = is_demo
+        
+        # Initialize data management components
+        self.cache_manager = CacheManager()
+        self.data_organizer = DataOrganizer()
+        self.data_loader = DataLoader()
+        
         self.transformer = StandardizedClaimsTransformer()
         
     def setup_page_config(self, page_title: str, page_icon: str = "📊"):
@@ -893,35 +900,106 @@ class ClaimsAnalysisTemplate:
 
                 st.subheader("📊 All Periods (All Claims)")
                 
-                # Cache management
-                col1, col2 = st.columns([3, 1])
-                with col2:
-                    force_recompute = st.button("🔄 Force Recompute", help="Recompute period data even if cache exists")
+                # Cache management with selection UI
+                available_caches = self.cache_manager.list_available_caches()
+                
+                if available_caches:
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    
+                    with col1:
+                        # Cache selection dropdown with extraction dates
+                        cache_options = {}
+                        for cache in available_caches:
+                            if cache.get('type') == 'structured':
+                                # Structured folder approach - use extraction date as key
+                                cache_options[cache['extraction_date']] = f"📅 {cache['extraction_date']} - {cache['description']} ({cache['cache_size_mb']} MB)"
+                            else:
+                                # Legacy hash-based approach
+                                cache_options[cache['hash']] = f"🔧 {cache['created_at']} - {cache['description']} ({cache['cache_size_mb']} MB)"
+                        
+                        selected_cache_key = st.selectbox(
+                            "📁 Select Data Version:",
+                            options=list(cache_options.keys()),
+                            format_func=lambda x: cache_options[x],
+                            index=0,  # Select newest by default
+                            help="Choose which version of processed data to use"
+                        )
+                    
+                    with col2:
+                        force_recompute = st.button("🔄 Force Recompute", help="Recompute period data even if cache exists")
+                    
+                    with col3:
+                        show_cache_details = st.button("📋 Cache Details", help="Show detailed cache information")
+                    
+                    # Show cache details if requested
+                    if show_cache_details:
+                        # Find selected cache info
+                        selected_cache_info = None
+                        for cache in available_caches:
+                            if cache.get('type') == 'structured' and cache['extraction_date'] == selected_cache_key:
+                                selected_cache_info = cache
+                                break
+                            elif cache.get('type') == 'legacy' and cache['hash'] == selected_cache_key:
+                                selected_cache_info = cache
+                                break
+                        
+                        if selected_cache_info:
+                            with st.expander("📋 Cache Details", expanded=True):
+                                details = {
+                                    "Description": selected_cache_info['description'],
+                                    "Created": selected_cache_info['created_at'],
+                                    "Transactions": f"{selected_cache_info['num_transactions']:,}",
+                                    "Claims": f"{selected_cache_info['num_claims']:,}",
+                                    "Cache Size": f"{selected_cache_info['cache_size_mb']} MB",
+                                    "Input Files": selected_cache_info['input_files']
+                                }
+                                
+                                if selected_cache_info.get('type') == 'structured':
+                                    details["Extraction Date"] = selected_cache_info['extraction_date']
+                                else:
+                                    details["Hash"] = selected_cache_info['hash'][:16] + "..."
+                                
+                                st.json(details)
+                else:
+                    col1, col2 = st.columns([3, 1])
+                    with col2:
+                        force_recompute = st.button("🔄 Force Recompute", help="Recompute period data even if cache exists")
                 
                 with st.spinner("Processing all claims with vectorized approach..."):
+                    # Determine extraction date and input files based on selection
+                    extraction_date = None
+                    input_files = ["_data/clm_with_amt.csv"]  # Default fallback
+                    
+                    if available_caches and selected_cache_key:
+                        # Check if selected cache is structured or legacy
+                        selected_cache_info = None
+                        for cache in available_caches:
+                            if cache.get('type') == 'structured' and cache['extraction_date'] == selected_cache_key:
+                                selected_cache_info = cache
+                                extraction_date = cache['extraction_date']
+                                # Get organized input files for this extraction date
+                                input_files = self.data_organizer.get_organized_files(extraction_date)
+                                break
+                            elif cache.get('type') == 'legacy' and cache['hash'] == selected_cache_key:
+                                selected_cache_info = cache
+                                # Use the input files from metadata for legacy caches
+                                input_files = cache.get('input_files', ["_data/clm_with_amt.csv"])
+                                break
+                    
                     periods_all_df = self.transformer.transform_claims_data_vectorized(
                         df_raw_txn_filtered, 
-                        force_recompute=force_recompute
+                        force_recompute=force_recompute,
+                        input_files=input_files,
+                        extraction_date=extraction_date
                     )
                 
                 if not periods_all_df.empty:
                     st.dataframe(periods_all_df, use_container_width=True)
                     st.info(f"📈 **Dataset Summary:** {len(periods_all_df):,} periods from {periods_all_df['clmNum'].nunique():,} claims")
                     
-                    # Show cache info
-                    import os
-                    import glob
-                    
-                    cache_files = glob.glob("_data/period_clm_*.parquet")
-                    if cache_files:
-                        total_cache_size = sum(os.path.getsize(f) for f in cache_files) / (1024 * 1024)  # MB
-                        st.success(f"💾 **Cache Status:** {len(cache_files)} cache file(s) ({total_cache_size:.1f} MB total)")
-                        
-                        # Show cache details in expander
-                        with st.expander("📋 Cache Details", expanded=False):
-                            for cache_file in cache_files:
-                                cache_size = os.path.getsize(cache_file) / (1024 * 1024)
-                                st.text(f"• {os.path.basename(cache_file)}: {cache_size:.1f} MB")
+                    # Show current cache info
+                    if available_caches:
+                        st.success(f"💾 **Cache Status:** {len(available_caches)} cache file(s) available")
                 else:
                     st.warning("No period data available")
                 

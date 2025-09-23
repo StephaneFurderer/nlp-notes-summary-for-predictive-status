@@ -7,6 +7,7 @@ described in "Micro-level reserving for general insurance claims using a long sh
 
 import pandas as pd
 import numpy as np
+import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import warnings
@@ -14,6 +15,7 @@ from .standardized_claims_schema import (
     StandardizedClaim, StaticClaimContext, DynamicClaimPeriod, 
     StandardizedClaimsDataset, StandardizationConfig, validate_standardized_claim
 )
+from .load_cache_data import CacheManager, DataOrganizer
 
 warnings.filterwarnings('ignore')
 
@@ -23,17 +25,36 @@ class StandardizedClaimsTransformer:
     Transforms raw transaction data into standardized claims format
     """
     
-    def __init__(self, config: Optional[StandardizationConfig] = None):
+    def __init__(self, config: Optional[StandardizationConfig] = None, debug_logging: bool = False):
         self.config = config or StandardizationConfig()
+        self.debug_logging = debug_logging
         
-        # Normalization parameters for incremental payments
-        self.normalization_params = {
-            'paid': {'mean': None, 'std': None},
-            'expense': {'mean': None, 'std': None}
-        }
+        # Storage for processed claims
+        self.standardized_claims: Dict[str, StandardizedClaim] = {}
         
-        # Flag to track if normalization has been calculated
+        # Normalization parameters
+        self.normalization_params: Optional[Dict[str, Any]] = None
+        self.period_normalization_params: Optional[Dict[str, Any]] = None
         self.normalization_computed = False
+        self.period_normalization_computed = False
+        
+        # Cache and data management
+        self.cache_manager = CacheManager()
+        self.data_organizer = DataOrganizer()
+    
+    def list_available_caches(self) -> List[Dict[str, Any]]:
+        """Delegate to cache manager"""
+        return self.cache_manager.list_available_caches()
+    
+    def get_organized_input_files(self, extraction_date: str) -> List[str]:
+        """Delegate to data organizer"""
+        return self.data_organizer.get_organized_files(extraction_date)
+    
+    def organize_data_by_extraction_date(self, extraction_date: str, claims_file: str, 
+                                       notes_file: Optional[str] = None, 
+                                       policy_file: Optional[str] = None) -> Dict[str, str]:
+        """Delegate to data organizer"""
+        return self.data_organizer.organize_files(extraction_date, claims_file, notes_file, policy_file)
     
     def calculate_normalization_parameters(self, df_txn: pd.DataFrame, df_final: pd.DataFrame) -> None:
         """
@@ -243,11 +264,13 @@ class StandardizedClaimsTransformer:
         
         return fig
     
-    def _create_data_hash(self, df_txn: pd.DataFrame) -> str:
+    def _create_data_hash(self, df_txn: pd.DataFrame, input_files: Optional[List[str]] = None) -> str:
         """
         Create a hash of the input data for cache invalidation
+        Now supports multiple input files (CSV files, etc.)
         """
         import hashlib
+        import os
         
         # Create a summary of the data for hashing
         data_summary = {
@@ -264,22 +287,69 @@ class StandardizedClaimsTransformer:
             ).hexdigest()[:16]  # Use first 16 chars for shorter filenames
         }
         
+        # Add input file information if provided
+        if input_files:
+            file_info = {}
+            for file_path in input_files:
+                if os.path.exists(file_path):
+                    file_stat = os.stat(file_path)
+                    file_info[os.path.basename(file_path)] = {
+                        'size': file_stat.st_size,
+                        'modified': file_stat.st_mtime,
+                        'content_hash': self._get_file_hash(file_path)[:16]
+                    }
+            data_summary['input_files'] = file_info
+        
         # Create hash from summary
         summary_str = str(sorted(data_summary.items()))
         return hashlib.md5(summary_str.encode()).hexdigest()[:12]
     
-    def _create_cache_metadata(self, df_txn: pd.DataFrame, result_df: pd.DataFrame) -> dict:
+    def _get_file_hash(self, file_path: str) -> str:
+        """Get MD5 hash of a file's content"""
+        import hashlib
+        
+        hash_md5 = hashlib.md5()
+        try:
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except Exception:
+            return "error"
+    
+    def _create_cache_metadata(self, df_txn: pd.DataFrame, result_df: pd.DataFrame, input_files: Optional[List[str]] = None, extraction_date: Optional[str] = None) -> dict:
         """
         Create metadata for cache validation
         """
         from datetime import datetime
         
+        # Create human-readable description
+        data_hash = self._create_data_hash(df_txn, input_files)
+        date_range = {
+            'min': df_txn[self.config.transaction_date_col].min().strftime('%Y-%m-%d'),
+            'max': df_txn[self.config.transaction_date_col].max().strftime('%Y-%m-%d')
+        }
+        
+        if extraction_date:
+            description = f"Extracted {extraction_date} - {date_range['min']} to {date_range['max']} - {len(df_txn):,} transactions"
+        else:
+            description = f"{date_range['min']} to {date_range['max']} - {len(df_txn):,} transactions"
+        
+        if input_files:
+            file_names = [os.path.basename(f) for f in input_files if os.path.exists(f)]
+            if file_names:
+                description += f" from {', '.join(file_names)}"
+        
         return {
-            'data_version': self._create_data_hash(df_txn),
+            'data_version': data_hash,
+            'description': description,
             'created_at': datetime.now().isoformat(),
+            'extraction_date': extraction_date,
             'num_transactions': len(df_txn),
             'num_claims': df_txn[self.config.claim_number_col].nunique(),
             'num_periods': len(result_df),
+            'date_range': date_range,
+            'input_files': input_files or [],
             'config': {
                 'period_length_days': self.config.period_length_days,
                 'max_periods': self.config.max_periods,
@@ -288,12 +358,12 @@ class StandardizedClaimsTransformer:
             'normalization_computed': self.normalization_computed
         }
     
-    def _validate_cache_metadata(self, cache_meta: dict, df_txn: pd.DataFrame) -> bool:
+    def _validate_cache_metadata(self, cache_meta: dict, df_txn: pd.DataFrame, input_files: Optional[List[str]] = None) -> bool:
         """
         Validate cache metadata against current data and config
         """
-        # Check if data hash matches
-        current_hash = self._create_data_hash(df_txn)
+        # Check if data hash matches (including input files)
+        current_hash = self._create_data_hash(df_txn, input_files)
         if cache_meta['data_version'] != current_hash:
             return False
         
@@ -310,6 +380,172 @@ class StandardizedClaimsTransformer:
             return False
         
         return True
+    
+    def list_available_caches(self) -> List[Dict[str, Any]]:
+        """
+        List all available cache files with their metadata for cache selection UI
+        Supports both structured folder approach and legacy hash-based approach
+        """
+        import os
+        import glob
+        import pickle
+        from datetime import datetime
+        
+        cache_info = []
+        
+        # Method 1: Check structured folders (extraction_date/cache/)
+        date_folders = glob.glob("_data/*/cache/")
+        for cache_dir in date_folders:
+            cache_file = os.path.join(cache_dir, "period_clm.parquet")
+            meta_file = os.path.join(cache_dir, "period_clm_meta.pkl")
+            
+            if os.path.exists(cache_file) and os.path.exists(meta_file):
+                try:
+                    with open(meta_file, 'rb') as f:
+                        meta = pickle.load(f)
+                    
+                    # Extract date from folder path
+                    extraction_date = os.path.basename(os.path.dirname(cache_dir))
+                    
+                    # Calculate file size
+                    cache_size = os.path.getsize(cache_file) / (1024 * 1024)  # MB
+                    
+                    # Parse creation date
+                    try:
+                        created_date = datetime.fromisoformat(meta['created_at']).strftime('%Y-%m-%d %H:%M')
+                    except:
+                        created_date = "Unknown"
+                    
+                    cache_info.append({
+                        'extraction_date': extraction_date,
+                        'file_path': cache_file,
+                        'meta_file': meta_file,
+                        'description': meta.get('description', 'Unknown'),
+                        'created_at': created_date,
+                        'num_transactions': meta.get('num_transactions', 0),
+                        'num_claims': meta.get('num_claims', 0),
+                        'cache_size_mb': round(cache_size, 1),
+                        'input_files': meta.get('input_files', []),
+                        'type': 'structured'
+                    })
+                except Exception as e:
+                    # Skip corrupted metadata files
+                    continue
+        
+        # Method 2: Check legacy hash-based files
+        hash_files = glob.glob("_data/period_clm_*.parquet")
+        for cache_file in hash_files:
+            # Extract hash from filename
+            hash_part = os.path.basename(cache_file).replace("period_clm_", "").replace(".parquet", "")
+            meta_file = f"_data/period_clm_{hash_part}_meta.pkl"
+            
+            if os.path.exists(meta_file):
+                try:
+                    with open(meta_file, 'rb') as f:
+                        meta = pickle.load(f)
+                    
+                    # Calculate file size
+                    cache_size = os.path.getsize(cache_file) / (1024 * 1024)  # MB
+                    
+                    # Parse creation date
+                    try:
+                        created_date = datetime.fromisoformat(meta['created_at']).strftime('%Y-%m-%d %H:%M')
+                    except:
+                        created_date = "Unknown"
+                    
+                    cache_info.append({
+                        'hash': hash_part,
+                        'file_path': cache_file,
+                        'meta_file': meta_file,
+                        'description': meta.get('description', 'Unknown'),
+                        'created_at': created_date,
+                        'num_transactions': meta.get('num_transactions', 0),
+                        'num_claims': meta.get('num_claims', 0),
+                        'cache_size_mb': round(cache_size, 1),
+                        'input_files': meta.get('input_files', []),
+                        'type': 'legacy'
+                    })
+                except Exception as e:
+                    # Skip corrupted metadata files
+                    continue
+        
+        # Sort by creation date (newest first), prioritizing structured folders
+        cache_info.sort(key=lambda x: (x.get('extraction_date', ''), x['created_at']), reverse=True)
+        return cache_info
+    
+    def organize_data_by_extraction_date(self, extraction_date: str, claims_file: str, notes_file: Optional[str] = None, policy_file: Optional[str] = None) -> Dict[str, str]:
+        """
+        Organize input files into structured folder by extraction date
+        
+        Args:
+            extraction_date: Date string in YYYY-MM-DD format
+            claims_file: Path to claims CSV file
+            notes_file: Optional path to notes CSV file  
+            policy_file: Optional path to policy CSV file
+            
+        Returns:
+            Dictionary mapping file types to their new organized paths
+        """
+        import shutil
+        
+        # Create folder structure
+        date_dir = f"_data/{extraction_date}"
+        clm_dir = f"{date_dir}/clm"
+        notes_dir = f"{date_dir}/notes"
+        policy_dir = f"{date_dir}/policy"
+        
+        os.makedirs(clm_dir, exist_ok=True)
+        if notes_file:
+            os.makedirs(notes_dir, exist_ok=True)
+        if policy_file:
+            os.makedirs(policy_dir, exist_ok=True)
+        
+        organized_files = {}
+        
+        # Copy claims file
+        clm_dest = f"{clm_dir}/clm_with_amt.csv"
+        shutil.copy2(claims_file, clm_dest)
+        organized_files['claims'] = clm_dest
+        
+        # Copy notes file if provided
+        if notes_file and os.path.exists(notes_file):
+            notes_dest = f"{notes_dir}/notes_summary.csv"
+            shutil.copy2(notes_file, notes_dest)
+            organized_files['notes'] = notes_dest
+        
+        # Copy policy file if provided
+        if policy_file and os.path.exists(policy_file):
+            policy_dest = f"{policy_dir}/policy_info.csv"
+            shutil.copy2(policy_file, policy_dest)
+            organized_files['policy'] = policy_dest
+        
+        return organized_files
+    
+    def get_organized_input_files(self, extraction_date: str) -> List[str]:
+        """
+        Get list of organized input files for a given extraction date
+        
+        Args:
+            extraction_date: Date string in YYYY-MM-DD format
+            
+        Returns:
+            List of file paths that exist for this extraction date
+        """
+        date_dir = f"_data/{extraction_date}"
+        input_files = []
+        
+        # Check for standard file locations
+        potential_files = [
+            f"{date_dir}/clm/clm_with_amt.csv",
+            f"{date_dir}/notes/notes_summary.csv", 
+            f"{date_dir}/policy/policy_info.csv"
+        ]
+        
+        for file_path in potential_files:
+            if os.path.exists(file_path):
+                input_files.append(file_path)
+        
+        return input_files
     
     def _cleanup_old_cache_files(self, current_hash: str) -> None:
         """
@@ -413,25 +649,35 @@ class StandardizedClaimsTransformer:
         print(f"Transformation completed: {len(standardized_claims)} claims, {total_periods} total periods")
         return dataset
     
-    def transform_claims_data_vectorized(self, df_txn: pd.DataFrame, force_recompute: bool = False) -> pd.DataFrame:
+    def transform_claims_data_vectorized(self, df_txn: pd.DataFrame, force_recompute: bool = False, input_files: Optional[List[str]] = None, extraction_date: Optional[str] = None) -> pd.DataFrame:
         """
-        Fast vectorized transformation to get period data for all claims with smart caching
+        Fast vectorized transformation to get period data for all claims with structured caching
         
         Returns a DataFrame with all periods from all claims for fast analysis.
-        Uses parquet file caching with data hash-based invalidation for different data versions.
+        Uses structured folder caching organized by extraction date.
         
         Args:
             df_txn: Raw transaction dataframe
             force_recompute: If True, recompute even if cache exists
+            input_files: List of input CSV files used to create df_txn (for cache invalidation)
+            extraction_date: Date string (YYYY-MM-DD) for organized folder structure
         """
         import os
         import hashlib
         import pickle
         
-        # Create data hash for cache invalidation
-        data_hash = self._create_data_hash(df_txn)
-        cache_file = f"_data/period_clm_{data_hash}.parquet"
-        cache_meta_file = f"_data/period_clm_{data_hash}_meta.pkl"
+        # Determine cache paths based on extraction date or fallback to hash-based
+        if extraction_date:
+            # Use structured folder approach
+            cache_dir = f"_data/{extraction_date}/cache"
+            os.makedirs(cache_dir, exist_ok=True)
+            cache_file = f"{cache_dir}/period_clm.parquet"
+            cache_meta_file = f"{cache_dir}/period_clm_meta.pkl"
+        else:
+            # Fallback to hash-based approach
+            data_hash = self._create_data_hash(df_txn, input_files)
+            cache_file = f"_data/period_clm_{data_hash}.parquet"
+            cache_meta_file = f"_data/period_clm_{data_hash}_meta.pkl"
         
         # Check if cache exists and is valid
         if not force_recompute and os.path.exists(cache_file) and os.path.exists(cache_meta_file):
@@ -441,7 +687,7 @@ class StandardizedClaimsTransformer:
                     cache_meta = pickle.load(f)
                 
                 # Validate cache metadata
-                if self._validate_cache_metadata(cache_meta, df_txn):
+                if self._validate_cache_metadata(cache_meta, df_txn, input_files):
                     # Load from cache
                     cached_df = pd.read_parquet(cache_file)
                     
@@ -500,7 +746,7 @@ class StandardizedClaimsTransformer:
                 os.makedirs("_data", exist_ok=True)
                 
                 # Create cache metadata
-                cache_meta = self._create_cache_metadata(df_txn, result_df)
+                cache_meta = self._create_cache_metadata(df_txn, result_df, input_files, extraction_date)
                 
                 # Save data as parquet
                 result_df.to_parquet(cache_file, index=False)
