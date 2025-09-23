@@ -139,8 +139,7 @@ class StandardizedClaimsTransformer:
             return
         
         # Step 2: Calculate normalization parameters for each payment type
-        # Use schema-driven approach to detect correct column names
-        payment_types = self.detect_payment_columns_in_dataframe(df_completed_txn)
+        payment_types = ['paid', 'expense']
 
         print(f"Available columns in df_completed_txn: {df_completed_txn.columns.tolist()}")
         print(f"Detected payment columns: {payment_types}")
@@ -157,10 +156,8 @@ class StandardizedClaimsTransformer:
                 mean_val = positive_payments.mean()
                 std_val = positive_payments.std()
                 
-                # Store parameters using the base name (without 'incremental_')
-                base_name = payment_type.replace('incremental_', '')
-                self.normalization_params[base_name]['mean'] = mean_val
-                self.normalization_params[base_name]['std'] = std_val
+                self.normalization_params[payment_type]['mean'] = mean_val
+                self.normalization_params[payment_type]['std'] = std_val
                 
                 print(f"Normalization parameters for {payment_type}:")
                 print(f"  Mean: {mean_val:.2f}")
@@ -168,9 +165,8 @@ class StandardizedClaimsTransformer:
                 print(f"  Sample size: {len(positive_payments)}")
             else:
                 print(f"Warning: No positive {payment_type} payments found")
-                base_name = payment_type.replace('incremental_', '')
-                self.normalization_params[base_name]['mean'] = 0.0
-                self.normalization_params[base_name]['std'] = 1.0
+                self.normalization_params[payment_type]['mean'] = 0.0
+                self.normalization_params[payment_type]['std'] = 1.0
         
         self.normalization_computed = True
     
@@ -191,14 +187,12 @@ class StandardizedClaimsTransformer:
         df_normalized = df_txn.copy()
         
         # Apply z-score normalization to each payment type
-        payment_types = self.detect_payment_columns_in_dataframe(df_normalized)
-        for payment_type in payment_types:
+        for payment_type in ['paid', 'expense']:
             if payment_type not in df_normalized.columns:
                 print(f"Warning: Column '{payment_type}' not found. Skipping normalization.")
                 continue
 
-            base_name = payment_type.replace('incremental_', '')
-            params = self.normalization_params[base_name]
+            params = self.normalization_params[payment_type]
 
             if params['mean'] is not None and params['std'] is not None and params['std'] > 0:
                 # Apply normalization: (x - mean) / std
@@ -252,7 +246,7 @@ class StandardizedClaimsTransformer:
         )
         
         # Plot original and normalized distributions
-        payment_types = self.detect_payment_columns_in_dataframe(df_completed_txn)
+        payment_types = ['paid', 'expense']
         colors = ['blue', 'red']
         
         for i, payment_type in enumerate(payment_types):
@@ -338,8 +332,7 @@ class StandardizedClaimsTransformer:
                 print(f"Warning: Column '{payment_type}' not found. Skipping summary statistics.")
                 continue
 
-            base_name = payment_type.replace('incremental_', '')
-            params = self.normalization_params[base_name]
+            params = self.normalization_params[payment_type]
             original_positive = df_completed_txn[df_completed_txn[payment_type] > 0][payment_type]
             normalized_positive = df_normalized[df_normalized[payment_type] > 0][f'{payment_type}_normalized']
             

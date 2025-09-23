@@ -830,55 +830,23 @@ class ClaimsAnalysisTemplate:
                     st.metric("Total Transactions", len(df_completed_txn))
                 
                 with col2:
-                    # Use schema-driven approach to detect payment columns
-                    from .standardized_claims_transformer import StandardizedClaimsTransformer
-                    payment_columns = StandardizedClaimsTransformer.detect_payment_columns_in_dataframe(df_completed_txn)
-
-                    # Find paid and expense columns dynamically
-                    paid_col = None
-                    expense_col = None
-                    for col in payment_columns:
-                        if 'paid' in col.lower():
-                            paid_col = col
-                        elif 'expense' in col.lower():
-                            expense_col = col
-
-                    # Display metrics with dynamic column detection
-                    if paid_col and paid_col in df_completed_txn.columns:
-                        paid_positive = df_completed_txn[df_completed_txn[paid_col] > 0][paid_col]
+                    if 'paid' in df_completed_txn.columns and 'expense' in df_completed_txn.columns:
+                        paid_positive = df_completed_txn[df_completed_txn['paid'] > 0]['paid']
+                        expense_positive = df_completed_txn[df_completed_txn['expense'] > 0]['expense']
                         st.metric("Positive Paid Transactions", len(paid_positive))
-                    else:
-                        st.metric("Positive Paid Transactions", "N/A")
-
-                    if expense_col and expense_col in df_completed_txn.columns:
-                        expense_positive = df_completed_txn[df_completed_txn[expense_col] > 0][expense_col]
                         st.metric("Positive Expense Transactions", len(expense_positive))
                     else:
+                        st.metric("Positive Paid Transactions", "N/A")
                         st.metric("Positive Expense Transactions", "N/A")
                 
                 with col3:
-                    # Check if both paid and expense data exist
-                    paid_exists = paid_col and paid_col in df_completed_txn.columns
-                    expense_exists = expense_col and expense_col in df_completed_txn.columns
+                    if ('paid' in df_completed_txn.columns and 'expense' in df_completed_txn.columns and
+                        'paid_normalized' in df_normalized.columns and 'expense_normalized' in df_normalized.columns):
+                        paid_normalized = df_normalized[df_normalized['paid'] > 0]['paid_normalized']
+                        expense_normalized = df_normalized[df_normalized['expense'] > 0]['expense_normalized']
 
-                    if paid_exists and expense_exists:
-                        try:
-                            # Look for normalized columns
-                            paid_norm_col = f"{paid_col}_normalized"
-                            expense_norm_col = f"{expense_col}_normalized"
-
-                            if paid_norm_col in df_normalized.columns and expense_norm_col in df_normalized.columns:
-                                paid_normalized = df_normalized[df_normalized[paid_col] > 0][paid_norm_col]
-                                expense_normalized = df_normalized[df_normalized[expense_col] > 0][expense_norm_col]
-
-                                st.metric("Paid Norm Mean", f"{paid_normalized.mean():.4f}")
-                                st.metric("Expense Norm Mean", f"{expense_normalized.mean():.4f}")
-                            else:
-                                st.metric("Paid Norm Mean", "N/A")
-                                st.metric("Expense Norm Mean", "N/A")
-                        except Exception as e:
-                            st.metric("Paid Norm Mean", "Error")
-                            st.metric("Expense Norm Mean", "Error")
+                        st.metric("Paid Norm Mean", f"{paid_normalized.mean():.4f}")
+                        st.metric("Expense Norm Mean", f"{expense_normalized.mean():.4f}")
                     else:
                         st.metric("Paid Norm Mean", "N/A")
                         st.metric("Expense Norm Mean", "N/A")
