@@ -319,6 +319,144 @@ class StandardizedClaimsTransformer:
         print(f"Transformation completed: {len(standardized_claims)} claims, {total_periods} total periods")
         return dataset
     
+    def transform_claims_data_vectorized(self, df_txn: pd.DataFrame) -> pd.DataFrame:
+        """
+        Fast vectorized transformation to get period data for all claims
+        
+        Returns a DataFrame with all periods from all claims for fast analysis
+        """
+        if len(df_txn) == 0:
+            return pd.DataFrame()
+        
+        # Apply normalization if parameters have been computed
+        if self.normalization_computed:
+            df_txn = self.apply_normalization(df_txn)
+        
+        # Sort by claim and transaction date
+        df_sorted = df_txn.sort_values([self.config.claim_number_col, self.config.transaction_date_col])
+        
+        # Vectorized approach: Group by claim and process in parallel
+        all_periods = []
+        
+        # Group by claim number
+        grouped = df_sorted.groupby(self.config.claim_number_col)
+        
+        for claim_num, claim_group in grouped:
+            try:
+                # Get date received (first transaction date for this claim)
+                date_received = claim_group[self.config.transaction_date_col].min()
+                
+                # Calculate periods vectorized
+                periods_data = self._create_periods_vectorized(claim_group, date_received, claim_num)
+                all_periods.extend(periods_data)
+                
+            except Exception as e:
+                # Skip problematic claims silently
+                continue
+        
+        # Convert to DataFrame
+        if all_periods:
+            return pd.DataFrame(all_periods)
+        else:
+            return pd.DataFrame()
+    
+    def _create_periods_vectorized(self, claim_group: pd.DataFrame, date_received: pd.Timestamp, claim_num: str) -> List[Dict]:
+        """
+        Create periods for a single claim using vectorized operations
+        """
+        periods = []
+        
+        # Calculate the maximum period needed
+        max_date = claim_group[self.config.transaction_date_col].max()
+        max_days = (max_date - date_received).days
+        max_period_needed = min(max_days // self.config.period_length_days + 1, self.config.max_periods)
+        
+        # Initialize cumulative amounts
+        cumulative_paid = 0.0
+        cumulative_expense = 0.0
+        cumulative_recovery = 0.0
+        cumulative_reserve = 0.0
+        cumulative_incurred = 0.0
+        cumulative_paid_normalized = 0.0
+        cumulative_expense_normalized = 0.0
+        
+        # Create periods
+        for period in range(max_period_needed):
+            period_start_days = period * self.config.period_length_days
+            period_end_days = (period + 1) * self.config.period_length_days
+            
+            period_start = date_received + timedelta(days=period_start_days)
+            period_end = date_received + timedelta(days=period_end_days)
+            
+            # Vectorized period calculation
+            period_mask = (
+                (claim_group[self.config.transaction_date_col] >= period_start) &
+                (claim_group[self.config.transaction_date_col] < period_end)
+            )
+            
+            period_transactions = claim_group[period_mask]
+            
+            if len(period_transactions) == 0:
+                # No transactions in this period, but still create the period with zeros
+                incremental_paid = 0.0
+                incremental_expense = 0.0
+                incremental_recovery = 0.0
+                incremental_reserve = 0.0
+                incremental_paid_normalized = 0.0
+                incremental_expense_normalized = 0.0
+            else:
+                # Calculate incremental amounts vectorized
+                incremental_paid = period_transactions[self.config.paid_amount_col].sum()
+                incremental_expense = period_transactions[self.config.expense_amount_col].sum()
+                incremental_recovery = period_transactions[self.config.recovery_amount_col].sum() if self.config.recovery_amount_col in claim_group.columns else 0.0
+                incremental_reserve = period_transactions[self.config.reserve_amount_col].sum() if self.config.reserve_amount_col in claim_group.columns else 0.0
+                
+                # Calculate normalized amounts
+                if self.normalization_computed:
+                    incremental_paid_normalized = period_transactions[f'{self.config.paid_amount_col}_normalized'].sum()
+                    incremental_expense_normalized = period_transactions[f'{self.config.expense_amount_col}_normalized'].sum()
+                else:
+                    incremental_paid_normalized = 0.0
+                    incremental_expense_normalized = 0.0
+            
+            # Update cumulative amounts
+            cumulative_paid += incremental_paid
+            cumulative_expense += incremental_expense
+            cumulative_recovery += incremental_recovery
+            cumulative_reserve += incremental_reserve
+            cumulative_incurred = cumulative_paid + cumulative_expense + cumulative_recovery + cumulative_reserve
+            cumulative_paid_normalized += incremental_paid_normalized
+            cumulative_expense_normalized += incremental_expense_normalized
+            
+            # Create period data dictionary
+            period_data = {
+                'clmNum': claim_num,
+                'period': period,
+                'days_from_receipt': period_start_days,
+                'period_start_date': period_start,
+                'period_end_date': period_end,
+                'incremental_paid': incremental_paid,
+                'incremental_expense': incremental_expense,
+                'incremental_recovery': incremental_recovery,
+                'incremental_reserve': incremental_reserve,
+                'incremental_paid_normalized': incremental_paid_normalized,
+                'incremental_expense_normalized': incremental_expense_normalized,
+                'cumulative_paid': cumulative_paid,
+                'cumulative_expense': cumulative_expense,
+                'cumulative_recovery': cumulative_recovery,
+                'cumulative_reserve': cumulative_reserve,
+                'cumulative_incurred': cumulative_incurred,
+                'cumulative_paid_normalized': cumulative_paid_normalized,
+                'cumulative_expense_normalized': cumulative_expense_normalized,
+                'num_transactions': len(period_transactions),
+                'has_payment': incremental_paid > 0,
+                'has_expense': incremental_expense > 0
+            }
+            
+            periods.append(period_data)
+        
+        return periods
+    
     def _transform_single_claim(self, claim_df: pd.DataFrame) -> Optional[StandardizedClaim]:
         """
         Transform a single claim's transaction data into standardized format

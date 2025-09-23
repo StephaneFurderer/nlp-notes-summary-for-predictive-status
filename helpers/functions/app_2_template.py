@@ -892,9 +892,14 @@ class ClaimsAnalysisTemplate:
                 st.dataframe(df_raw_txn_filtered_display, use_container_width=True)
 
                 st.subheader("📊 All Periods (All Claims)")
-                periods_all = self.transformer.standardized_claims.values()
-                periods_all_df = pd.DataFrame(periods_all)
-                st.dataframe(periods_all_df, use_container_width=True)
+                with st.spinner("Processing all claims with vectorized approach..."):
+                    periods_all_df = self.transformer.transform_claims_data_vectorized(df_raw_txn_filtered)
+                
+                if not periods_all_df.empty:
+                    st.dataframe(periods_all_df, use_container_width=True)
+                    st.info(f"📈 **Dataset Summary:** {len(periods_all_df):,} periods from {periods_all_df['clmNum'].nunique():,} claims")
+                else:
+                    st.warning("No period data available")
                 
                 # Show final claim status for all claims using pre-computed final data
                 if not df_raw_txn_filtered.empty and hasattr(self, 'df_raw_final') and self.df_raw_final is not None:
