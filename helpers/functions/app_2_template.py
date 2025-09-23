@@ -729,14 +729,30 @@ class ClaimsAnalysisTemplate:
     def _render_dataset_overview(self, df_raw_txn: pd.DataFrame):
         """Render dataset overview."""
         st.subheader("📊 Dataset Overview")
+
+        # Safe date range calculation
+        try:
+            # Ensure datetxn is datetime and not null
+            date_col = pd.to_datetime(df_raw_txn['datetxn'], errors='coerce')
+            date_col = date_col.dropna()
+
+            if len(date_col) > 0:
+                min_date = date_col.min().strftime('%Y-%m-%d')
+                max_date = date_col.max().strftime('%Y-%m-%d')
+                date_range = f"{min_date} to {max_date}"
+            else:
+                date_range = "No valid dates"
+        except Exception:
+            date_range = "Date format error"
+
         overview_stats = {
             'Total Claims': df_raw_txn['clmNum'].nunique(),
             'Total Transactions': len(df_raw_txn),
-            'Date Range': f"{df_raw_txn['datetxn'].min().strftime('%Y-%m-%d')} to {df_raw_txn['datetxn'].max().strftime('%Y-%m-%d')}",
-            'Total Paid': f"${df_raw_txn['paid'].sum():,.2f}",
-            'Total Expense': f"${df_raw_txn['expense'].sum():,.2f}",
-            'Claims with Payments': (df_raw_txn['paid'] > 0).groupby(df_raw_txn['clmNum']).any().sum(),
-            'Claims with Expenses': (df_raw_txn['expense'] > 0).groupby(df_raw_txn['clmNum']).any().sum()
+            'Date Range': date_range,
+            'Total Paid': f"${df_raw_txn['paid'].sum():,.2f}" if 'paid' in df_raw_txn.columns else "N/A",
+            'Total Expense': f"${df_raw_txn['expense'].sum():,.2f}" if 'expense' in df_raw_txn.columns else "N/A",
+            'Claims with Payments': (df_raw_txn['paid'] > 0).groupby(df_raw_txn['clmNum']).any().sum() if 'paid' in df_raw_txn.columns else 0,
+            'Claims with Expenses': (df_raw_txn['expense'] > 0).groupby(df_raw_txn['clmNum']).any().sum() if 'expense' in df_raw_txn.columns else 0
         }
         
         col1, col2, col3 = st.columns(3)
