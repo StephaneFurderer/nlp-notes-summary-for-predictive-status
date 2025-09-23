@@ -890,6 +890,11 @@ class ClaimsAnalysisTemplate:
                     df_raw_txn_filtered_display[col] = df_raw_txn_filtered_display[col].astype(str)
                 
                 st.dataframe(df_raw_txn_filtered_display, use_container_width=True)
+
+                st.subheader("📊 All Periods (All Claims)")
+                periods_all = self.transformer.standardized_claims.values()
+                periods_all_df = pd.DataFrame(periods_all)
+                st.dataframe(periods_all_df, use_container_width=True)
                 
                 # Show final claim status for all claims using pre-computed final data
                 if not df_raw_txn_filtered.empty and hasattr(self, 'df_raw_final') and self.df_raw_final is not None:
