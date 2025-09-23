@@ -14,12 +14,15 @@ period_cache_manager = PeriodCacheManager()
 transformer = StandardizedClaimsTransformer()
 
 
-available_dates =data_loader.get_available_data_versions()
+# Get available dates
+available_versions = data_loader.get_available_data_versions()
+available_dates = [v['extraction_date'] for v in available_versions]
+
 # Sidebar controls
 st.sidebar.markdown("## Data Selection")
 extraction_date = st.sidebar.selectbox(
     "Extraction Date",
-    available_dates,  # Add more dates as available
+    available_dates,
     help="Select the data extraction date to analyze"
 )
 
