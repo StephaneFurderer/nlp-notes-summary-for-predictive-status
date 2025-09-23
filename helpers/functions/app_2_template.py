@@ -28,6 +28,7 @@ class ClaimsAnalysisTemplate:
     def __init__(self, app_title: str, is_demo: bool = False):
         self.app_title = app_title
         self.is_demo = is_demo
+        self.transformer = StandardizedClaimsTransformer()
         
     def setup_page_config(self, page_title: str, page_icon: str = "📊"):
         """Set up Streamlit page configuration."""
@@ -303,12 +304,13 @@ class ClaimsAnalysisTemplate:
         with st.expander("📈 Interactive Visualization - Individual Claim Analysis", expanded=False):
             if len(df_raw_txn_filtered) > 0:
                 # Always generate standardized data for the charts
-                transformer = StandardizedClaimsTransformer(config)
+                # Use the shared transformer instance and update its config
+                self.transformer.config = config
                 standardized_claim = None
                 
                 try:
                     with st.spinner("Generating standardized data for visualization..."):
-                        dataset = transformer.transform_claims_data(df_raw_txn_filtered)
+                        dataset = self.transformer.transform_claims_data(df_raw_txn_filtered)
                     if len(dataset.claims) > 0:
                         standardized_claim = dataset.claims[0]
                 except Exception as e:
@@ -509,6 +511,135 @@ class ClaimsAnalysisTemplate:
                 fig.update_layout(yaxis4_tickformat='$,.0f')
                 
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # Add claim-level normalization visualization
+                if standardized_claim and hasattr(self.transformer, 'normalization_computed') and self.transformer.normalization_computed:
+                    st.subheader("🔍 Claim-Level Normalization Analysis")
+                    
+                    # Show normalized vs original values for this specific claim
+                    periods = [p.period for p in standardized_claim.dynamic_periods]
+                    
+                    # Get original and normalized incremental values
+                    original_paid = [p.incremental_paid for p in standardized_claim.dynamic_periods]
+                    normalized_paid = [p.incremental_paid_normalized for p in standardized_claim.dynamic_periods]
+                    original_expense = [p.incremental_expense for p in standardized_claim.dynamic_periods]
+                    normalized_expense = [p.incremental_expense_normalized for p in standardized_claim.dynamic_periods]
+                    
+                    # Create normalization comparison chart
+                    fig_norm = make_subplots(
+                        rows=1, cols=2,
+                        subplot_titles=(
+                            f'Paid Amounts - Original vs Normalized (Claim {claim_filter})',
+                            f'Expense Amounts - Original vs Normalized (Claim {claim_filter})'
+                        )
+                    )
+                    
+                    # Paid amounts comparison
+                    fig_norm.add_trace(
+                        go.Bar(
+                            x=periods,
+                            y=original_paid,
+                            name='Original Paid',
+                            marker_color='lightblue',
+                            opacity=0.7,
+                            text=[f'${x:,.0f}' for x in original_paid],
+                            textposition='outside'
+                        ),
+                        row=1, col=1
+                    )
+                    
+                    fig_norm.add_trace(
+                        go.Bar(
+                            x=periods,
+                            y=normalized_paid,
+                            name='Normalized Paid',
+                            marker_color='darkblue',
+                            opacity=0.7,
+                            text=[f'{x:.2f}' for x in normalized_paid],
+                            textposition='outside',
+                            yaxis='y2'
+                        ),
+                        row=1, col=1
+                    )
+                    
+                    # Expense amounts comparison
+                    fig_norm.add_trace(
+                        go.Bar(
+                            x=periods,
+                            y=original_expense,
+                            name='Original Expense',
+                            marker_color='lightcoral',
+                            opacity=0.7,
+                            text=[f'${x:,.0f}' for x in original_expense],
+                            textposition='outside'
+                        ),
+                        row=1, col=2
+                    )
+                    
+                    fig_norm.add_trace(
+                        go.Bar(
+                            x=periods,
+                            y=normalized_expense,
+                            name='Normalized Expense',
+                            marker_color='darkred',
+                            opacity=0.7,
+                            text=[f'{x:.2f}' for x in normalized_expense],
+                            textposition='outside'
+                        ),
+                        row=1, col=2
+                    )
+                    
+                    # Add secondary y-axis for normalized values
+                    fig_norm.update_layout(
+                        yaxis=dict(title="Original Amount ($)", side="left"),
+                        yaxis2=dict(title="Normalized Value", side="right", overlaying="y"),
+                        yaxis3=dict(title="Original Amount ($)", side="left"),
+                        yaxis4=dict(title="Normalized Value", side="right", overlaying="y3"),
+                        height=400,
+                        title_text=f"Normalization Analysis for Claim {claim_filter}",
+                        title_x=0.5
+                    )
+                    
+                    fig_norm.update_xaxes(title_text="Period", row=1, col=1)
+                    fig_norm.update_xaxes(title_text="Period", row=1, col=2)
+                    
+                    st.plotly_chart(fig_norm, use_container_width=True)
+                    
+                    # Show normalization parameters used
+                    st.subheader("📊 Normalization Parameters Applied")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("**Paid Normalization:**")
+                        paid_params = self.transformer.normalization_params['paid']
+                        if paid_params['mean'] is not None:
+                            st.write(f"μ = ${paid_params['mean']:,.2f}")
+                            st.write(f"σ = ${paid_params['std']:,.2f}")
+                        
+                        # Show transformation for this claim's paid values
+                        if any(original_paid):
+                            st.markdown("**This Claim's Paid Transformations:**")
+                            for i, (orig, norm) in enumerate(zip(original_paid, normalized_paid)):
+                                if orig > 0:  # Only show non-zero values
+                                    st.write(f"Period {i}: ${orig:,.0f} → {norm:.2f}")
+                    
+                    with col2:
+                        st.markdown("**Expense Normalization:**")
+                        expense_params = self.transformer.normalization_params['expense']
+                        if expense_params['mean'] is not None:
+                            st.write(f"μ = ${expense_params['mean']:,.2f}")
+                            st.write(f"σ = ${expense_params['std']:,.2f}")
+                        
+                        # Show transformation for this claim's expense values
+                        if any(original_expense):
+                            st.markdown("**This Claim's Expense Transformations:**")
+                            for i, (orig, norm) in enumerate(zip(original_expense, normalized_expense)):
+                                if orig > 0:  # Only show non-zero values
+                                    st.write(f"Period {i}: ${orig:,.0f} → {norm:.2f}")
+                
+                else:
+                    st.info("💡 Normalization analysis will appear here once normalization parameters are computed. Check the 'Normalization Validation' section below.")
     
     def render_download_section(self, df_raw_txn_filtered: pd.DataFrame, claim_filter: str, 
                               standardized_claim: Optional[Any] = None):
@@ -597,6 +728,91 @@ class ClaimsAnalysisTemplate:
             with [col1, col2, col3][i % 3]:
                 st.metric(key, value)
     
+    def render_normalization_visualization(self, df_raw_txn: pd.DataFrame, df_raw_final: Optional[pd.DataFrame] = None):
+        """Render normalization visualization for validation."""
+        
+        with st.expander("📊 Normalization Validation - Global Distribution", expanded=False):
+            st.subheader("🔍 Normalization Parameters Validation")
+            
+            if not hasattr(self.transformer, 'normalization_computed') or not self.transformer.normalization_computed:
+                st.warning("⚠️ Normalization parameters not computed yet. Computing now...")
+                
+                if df_raw_final is not None:
+                    self.transformer.calculate_normalization_parameters(df_raw_txn, df_raw_final)
+                else:
+                    st.error("❌ Cannot compute normalization parameters: df_raw_final not provided")
+                    return
+            
+            # Display normalization parameters
+            st.subheader("📈 Normalization Parameters")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**Paid Amounts:**")
+                paid_params = self.transformer.normalization_params['paid']
+                if paid_params['mean'] is not None:
+                    st.metric("Mean (μ)", f"${paid_params['mean']:,.2f}")
+                    st.metric("Std Dev (σ)", f"${paid_params['std']:,.2f}")
+                else:
+                    st.warning("No paid normalization parameters available")
+            
+            with col2:
+                st.markdown("**Expense Amounts:**")
+                expense_params = self.transformer.normalization_params['expense']
+                if expense_params['mean'] is not None:
+                    st.metric("Mean (μ)", f"${expense_params['mean']:,.2f}")
+                    st.metric("Std Dev (σ)", f"${expense_params['std']:,.2f}")
+                else:
+                    st.warning("No expense normalization parameters available")
+            
+            # Create and display the visualization
+            st.subheader("📊 Distribution Comparison: Before vs After Normalization")
+            
+            try:
+                fig = self.transformer.create_normalization_visualization(df_raw_txn, df_raw_final)
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("Failed to create normalization visualization")
+            except Exception as e:
+                st.error(f"Error creating normalization visualization: {str(e)}")
+            
+            # Show summary statistics
+            st.subheader("📋 Normalization Summary")
+            
+            # Filter to completed claims only (same logic as normalization)
+            completed_statuses = ['PAID', 'DENIED', 'CLOSED']
+            if df_raw_final is not None:
+                completed_claims = df_raw_final[df_raw_final['clmStatus'].isin(completed_statuses)]['clmNum'].unique()
+                df_completed_txn = df_raw_txn[df_raw_txn['clmNum'].isin(completed_claims)].copy()
+                
+                # Apply normalization
+                df_normalized = self.transformer.apply_normalization(df_completed_txn)
+                
+                # Show statistics
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Completed Claims Used", len(completed_claims))
+                    st.metric("Total Transactions", len(df_completed_txn))
+                
+                with col2:
+                    paid_positive = df_completed_txn[df_completed_txn['paid'] > 0]['paid']
+                    expense_positive = df_completed_txn[df_completed_txn['expense'] > 0]['expense']
+                    st.metric("Positive Paid Transactions", len(paid_positive))
+                    st.metric("Positive Expense Transactions", len(expense_positive))
+                
+                with col3:
+                    if len(paid_positive) > 0 and len(expense_positive) > 0:
+                        paid_normalized = df_normalized[df_normalized['paid'] > 0]['paid_normalized']
+                        expense_normalized = df_normalized[df_normalized['expense'] > 0]['expense_normalized']
+                        
+                        st.metric("Paid Norm Mean", f"{paid_normalized.mean():.4f}")
+                        st.metric("Expense Norm Mean", f"{expense_normalized.mean():.4f}")
+            else:
+                st.warning("Cannot show summary: df_raw_final not provided")
+    
     def render_footer(self):
         """Render the footer."""
         st.markdown("---")
@@ -617,6 +833,14 @@ class ClaimsAnalysisTemplate:
         """
         # Store the final data for use in display methods
         self.df_raw_final = df_raw_final
+        
+        # Calculate normalization parameters early if we have final data
+        if df_raw_final is not None and not self.transformer.normalization_computed:
+            try:
+                with st.spinner("Calculating normalization parameters..."):
+                    self.transformer.calculate_normalization_parameters(df_raw_txn, df_raw_final)
+            except Exception as e:
+                st.warning(f"Could not calculate normalization parameters: {str(e)}")
         
         # Render header
         self.render_header()
@@ -722,6 +946,9 @@ class ClaimsAnalysisTemplate:
                 self.render_download_section(claim_filtered_data, claim_filter, standardized_claim)
         else:
             self.render_no_claim_selected(df_raw_txn_filtered)
+        
+        # Render global normalization visualization
+        self.render_normalization_visualization(df_raw_txn, df_raw_final)
         
         # Render footer
         self.render_footer()
