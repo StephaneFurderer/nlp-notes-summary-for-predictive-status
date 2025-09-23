@@ -13,33 +13,15 @@ data_loader = DataLoader()
 period_cache_manager = PeriodCacheManager()
 transformer = StandardizedClaimsTransformer()
 
+
+available_dates =data_loader.get_available_data_versions()
 # Sidebar controls
 st.sidebar.markdown("## Data Selection")
 extraction_date = st.sidebar.selectbox(
     "Extraction Date",
-    ["2025-09-21"],  # Add more dates as available
+    available_dates,  # Add more dates as available
     help="Select the data extraction date to analyze"
 )
-
-# Debug: Show files in extraction date directory
-import os
-import glob
-
-data_dir = f"_data/{extraction_date}"
-st.sidebar.markdown("## Debug - Files Found")
-if os.path.exists(data_dir):
-    csv_files = glob.glob(f"{data_dir}/*.csv")
-    parquet_files = glob.glob(f"{data_dir}/*.parquet")
-    
-    st.sidebar.write(f"**CSV Files:**")
-    for f in csv_files:
-        st.sidebar.write(f"• {os.path.basename(f)}")
-    
-    st.sidebar.write(f"**Parquet Files:**")
-    for f in parquet_files:
-        st.sidebar.write(f"• {os.path.basename(f)}")
-else:
-    st.sidebar.write(f"Directory {data_dir} not found")
 
 # Load data using the proper modules
 data = load_data(extraction_date=extraction_date)
