@@ -17,7 +17,7 @@ from typing import Optional, Tuple, Dict, Any
 # Import our standardization functions
 from helpers.functions.standardized_claims_transformer import StandardizedClaimsTransformer
 from helpers.functions.standardized_claims_schema import StandardizationConfig
-from helpers.functions.load_cache_data import CacheManager, DataOrganizer, DataLoader
+from helpers.functions.load_cache_data import CacheManager, DataLoader
 
 
 class ClaimsAnalysisTemplate:
@@ -32,7 +32,6 @@ class ClaimsAnalysisTemplate:
         
         # Initialize data management components
         self.cache_manager = CacheManager()
-        self.data_organizer = DataOrganizer()
         self.data_loader = DataLoader()
         
         self.transformer = StandardizedClaimsTransformer()

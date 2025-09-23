@@ -15,7 +15,7 @@ from .standardized_claims_schema import (
     StandardizedClaim, StaticClaimContext, DynamicClaimPeriod, 
     StandardizedClaimsDataset, StandardizationConfig, validate_standardized_claim
 )
-from .load_cache_data import CacheManager, DataOrganizer
+from .load_cache_data import CacheManager
 
 warnings.filterwarnings('ignore')
 
@@ -103,7 +103,7 @@ class StandardizedClaimsTransformer:
         """Initialize cache and data management components"""
         # Cache and data management
         self.cache_manager = CacheManager()
-        self.data_organizer = DataOrganizer()
+        # DataOrganizer removed - no longer needed
     
     def list_available_caches(self) -> List[Dict[str, Any]]:
         """Delegate to cache manager"""
