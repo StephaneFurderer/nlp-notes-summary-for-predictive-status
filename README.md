@@ -2,6 +2,53 @@
 
 Insurance claims analysis application using Natural Language Processing to predict claim outcomes from notes data.
 
+## 📊 Data Architecture (DAG)
+
+The system follows a standardized data processing pipeline based on the micro-level reserving framework:
+
+```mermaid
+graph TD
+    A[📥 Raw Claims Data<br/>clm_with_amt.csv] --> B[🔄 Data Loader<br/>DataLoader Class]
+    A1[📄 Raw Notes Data<br/>notes.csv] --> B1[📝 Notes Processor<br/>NotesReviewerAgent]
+
+    B --> C[🏗️ Claims Transformer<br/>StandardizedClaimsTransformer]
+    B1 --> D[🧠 NLP Analyzer<br/>ClaimNotesNLPAnalyzer]
+
+    C --> E[📋 Standardized Schema<br/>DynamicClaimPeriod]
+    D --> F[📊 NLP Features<br/>Keyword & Sentiment Analysis]
+
+    E --> G[🔢 Incremental Amounts<br/>incremental_paid<br/>incremental_expense]
+    E --> H[📈 Cumulative Amounts<br/>cumulative_paid<br/>cumulative_expense]
+
+    G --> I[⚖️ Normalization<br/>Z-score Normalized]
+    I --> J[🎯 ML Features<br/>incremental_paid_normalized<br/>incremental_expense_normalized]
+
+    F --> K[🤖 ML Models]
+    J --> K
+
+    K --> L[📈 Baseline Model<br/>Random Forest + NLP]
+    K --> M[🚀 Enhanced Model<br/>+ TF-IDF Features]
+    K --> N[🎯 NER Model<br/>+ Named Entity Recognition]
+
+    L --> O[📊 Predictions<br/>PAID/DENIED/CLOSED]
+    M --> O
+    N --> O
+
+    style A fill:#e1f5fe
+    style A1 fill:#e8f5e8
+    style E fill:#fff3e0
+    style J fill:#f3e5f5
+    style O fill:#e8f5e8
+```
+
+### Key Data Transformations
+
+1. **Raw Input** → **Standardized Periods**: Groups transactions into 30-day periods
+2. **Absolute Amounts** → **Incremental Amounts**: Calculates period-over-period changes
+3. **Raw Values** → **Normalized Values**: Z-score normalization for ML compatibility
+4. **Text Notes** → **NLP Features**: Extracts keywords, sentiment, and entities
+5. **Combined Features** → **Predictions**: Three-tier ML model architecture
+
 ## Features
 
 ### 🤖 Machine Learning Models
