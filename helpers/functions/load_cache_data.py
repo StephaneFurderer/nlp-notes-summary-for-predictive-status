@@ -461,7 +461,7 @@ class DataLoader:
     def load_claims_data(self, extraction_date: Optional[str] = None, 
                         claims_file: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        Load claims data from organized structure or direct file path
+        Load claims data from organized structure or direct file path with parquet caching
         
         Args:
             extraction_date: Date string for organized structure
@@ -481,9 +481,22 @@ class DataLoader:
                 return None
         
         if claims_file and os.path.exists(claims_file):
+            # Check for parquet cache
+            parquet_file = claims_file.replace('.csv', '.parquet')
+            
+            if os.path.exists(parquet_file):
+                try:
+                    df = pd.read_parquet(parquet_file)
+                    print(f"📁 Loaded cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
+                    return df
+                except Exception as e:
+                    print(f"⚠️ Error loading cached claims data: {e}")
+            
+            # Load from CSV and save as parquet
             try:
                 df = pd.read_csv(claims_file)
-                print(f"📁 Loaded claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
+                df.to_parquet(parquet_file)
+                print(f"📁 Loaded and cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
                 return df
             except Exception as e:
                 print(f"⚠️ Error loading claims data from {claims_file}: {e}")
@@ -495,7 +508,7 @@ class DataLoader:
     def load_notes_data(self, extraction_date: Optional[str] = None,
                        notes_file: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        Load notes data from organized structure or direct file path
+        Load notes data from organized structure or direct file path with parquet caching
         
         Args:
             extraction_date: Date string for organized structure
@@ -515,9 +528,22 @@ class DataLoader:
                 return None
         
         if notes_file and os.path.exists(notes_file):
+            # Check for parquet cache
+            parquet_file = notes_file.replace('.csv', '.parquet')
+            
+            if os.path.exists(parquet_file):
+                try:
+                    df = pd.read_parquet(parquet_file)
+                    print(f"📁 Loaded cached notes data: {len(df):,} notes")
+                    return df
+                except Exception as e:
+                    print(f"⚠️ Error loading cached notes data: {e}")
+            
+            # Load from CSV and save as parquet
             try:
                 df = pd.read_csv(notes_file)
-                print(f"📁 Loaded notes data: {len(df):,} notes")
+                df.to_parquet(parquet_file)
+                print(f"📁 Loaded and cached notes data: {len(df):,} notes")
                 return df
             except Exception as e:
                 print(f"⚠️ Error loading notes data from {notes_file}: {e}")
