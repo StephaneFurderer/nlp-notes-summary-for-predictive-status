@@ -1015,17 +1015,29 @@ class ClaimsAnalysisTemplate:
                         # Get organized input files for this extraction date
                         input_files = self.data_organizer.get_organized_files(extraction_date)
                     
-                    # Only process if we have an extraction date and input files
+                    # Process data - try organized data first, fallback to direct processing
                     if extraction_date and input_files:
+                        # Use organized data approach
                         periods_all_df = self.transformer.transform_claims_data_vectorized(
-                            df_raw_txn_filtered, 
+                            df_raw_txn_filtered,
                             force_recompute=force_recompute,
                             input_files=input_files,
                             extraction_date=extraction_date
                         )
                     else:
-                        st.error("❌ No organized data found. Please organize your data by extraction date first.")
-                        periods_all_df = pd.DataFrame()
+                        # Fallback: Process data directly without organized structure
+                        st.info("📁 Using direct data processing (not organized by extraction date)")
+                        try:
+                            periods_all_df = self.transformer.transform_claims_data_vectorized(
+                                df_raw_txn_filtered,
+                                force_recompute=force_recompute,
+                                input_files=[],  # No organized files
+                                extraction_date=None  # No specific extraction date
+                            )
+                        except Exception as e:
+                            st.error(f"❌ Error processing data: {str(e)}")
+                            st.info("💡 **Solution**: Organize your data by extraction date for better performance and caching.")
+                            periods_all_df = pd.DataFrame()
                 
                 if not periods_all_df.empty:
                     st.dataframe(periods_all_df, use_container_width=True)
