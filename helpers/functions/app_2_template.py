@@ -910,14 +910,9 @@ class ClaimsAnalysisTemplate:
                         # Cache selection dropdown with extraction dates
                         cache_options = {}
                         for cache in available_caches:
-                            if cache.get('type') == 'structured':
-                                # Structured folder approach - use extraction date as key
-                                cache_options[cache['extraction_date']] = f"📅 {cache['extraction_date']} - {cache['description']} ({cache['cache_size_mb']} MB)"
-                            else:
-                                # Legacy hash-based approach
-                                cache_options[cache['hash']] = f"🔧 {cache['created_at']} - {cache['description']} ({cache['cache_size_mb']} MB)"
+                            cache_options[cache['extraction_date']] = f"📅 {cache['extraction_date']} - {cache['description']} ({cache['cache_size_mb']} MB)"
                         
-                        selected_cache_key = st.selectbox(
+                        selected_extraction_date = st.selectbox(
                             "📁 Select Data Version:",
                             options=list(cache_options.keys()),
                             format_func=lambda x: cache_options[x],
@@ -934,18 +929,12 @@ class ClaimsAnalysisTemplate:
                     # Show cache details if requested
                     if show_cache_details:
                         # Find selected cache info
-                        selected_cache_info = None
-                        for cache in available_caches:
-                            if cache.get('type') == 'structured' and cache['extraction_date'] == selected_cache_key:
-                                selected_cache_info = cache
-                                break
-                            elif cache.get('type') == 'legacy' and cache['hash'] == selected_cache_key:
-                                selected_cache_info = cache
-                                break
+                        selected_cache_info = next((c for c in available_caches if c['extraction_date'] == selected_extraction_date), None)
                         
                         if selected_cache_info:
                             with st.expander("📋 Cache Details", expanded=True):
                                 details = {
+                                    "Extraction Date": selected_cache_info['extraction_date'],
                                     "Description": selected_cache_info['description'],
                                     "Created": selected_cache_info['created_at'],
                                     "Transactions": f"{selected_cache_info['num_transactions']:,}",
@@ -953,11 +942,6 @@ class ClaimsAnalysisTemplate:
                                     "Cache Size": f"{selected_cache_info['cache_size_mb']} MB",
                                     "Input Files": selected_cache_info['input_files']
                                 }
-                                
-                                if selected_cache_info.get('type') == 'structured':
-                                    details["Extraction Date"] = selected_cache_info['extraction_date']
-                                else:
-                                    details["Hash"] = selected_cache_info['hash'][:16] + "..."
                                 
                                 st.json(details)
                 else:
@@ -970,21 +954,10 @@ class ClaimsAnalysisTemplate:
                     extraction_date = None
                     input_files = ["_data/clm_with_amt.csv"]  # Default fallback
                     
-                    if available_caches and selected_cache_key:
-                        # Check if selected cache is structured or legacy
-                        selected_cache_info = None
-                        for cache in available_caches:
-                            if cache.get('type') == 'structured' and cache['extraction_date'] == selected_cache_key:
-                                selected_cache_info = cache
-                                extraction_date = cache['extraction_date']
-                                # Get organized input files for this extraction date
-                                input_files = self.data_organizer.get_organized_files(extraction_date)
-                                break
-                            elif cache.get('type') == 'legacy' and cache['hash'] == selected_cache_key:
-                                selected_cache_info = cache
-                                # Use the input files from metadata for legacy caches
-                                input_files = cache.get('input_files', ["_data/clm_with_amt.csv"])
-                                break
+                    if available_caches and selected_extraction_date:
+                        extraction_date = selected_extraction_date
+                        # Get organized input files for this extraction date
+                        input_files = self.data_organizer.get_organized_files(extraction_date)
                     
                     periods_all_df = self.transformer.transform_claims_data_vectorized(
                         df_raw_txn_filtered, 

@@ -26,7 +26,7 @@ class DataOrganizer:
     def __init__(self, base_data_dir: str = "_data"):
         self.base_data_dir = base_data_dir
     
-    def create_folder_structure(self, extraction_date: str) -> Dict[str, str]:
+    def create_folder_structure(self, extraction_date: str) -> str:
         """
         Create folder structure for a given extraction date
         
@@ -34,22 +34,11 @@ class DataOrganizer:
             extraction_date: Date string in YYYY-MM-DD format
             
         Returns:
-            Dictionary mapping folder types to their paths
+            Path to the date directory
         """
         date_dir = f"{self.base_data_dir}/{extraction_date}"
-        folders = {
-            'date_dir': date_dir,
-            'clm_dir': f"{date_dir}/clm",
-            'notes_dir': f"{date_dir}/notes", 
-            'policy_dir': f"{date_dir}/policy",
-            'cache_dir': f"{date_dir}/cache"
-        }
-        
-        # Create all directories
-        for folder_path in folders.values():
-            os.makedirs(folder_path, exist_ok=True)
-        
-        return folders
+        os.makedirs(date_dir, exist_ok=True)
+        return date_dir
     
     def organize_files(self, extraction_date: str, claims_file: str, 
                       notes_file: Optional[str] = None, 
@@ -66,24 +55,24 @@ class DataOrganizer:
         Returns:
             Dictionary mapping file types to their new organized paths
         """
-        folders = self.create_folder_structure(extraction_date)
+        date_dir = self.create_folder_structure(extraction_date)
         organized_files = {}
         
         # Copy claims file
         if os.path.exists(claims_file):
-            clm_dest = f"{folders['clm_dir']}/clm_with_amt.csv"
+            clm_dest = f"{date_dir}/clm_with_amt.csv"
             shutil.copy2(claims_file, clm_dest)
             organized_files['claims'] = clm_dest
         
         # Copy notes file if provided
         if notes_file and os.path.exists(notes_file):
-            notes_dest = f"{folders['notes_dir']}/notes_summary.csv"
+            notes_dest = f"{date_dir}/notes_summary.csv"
             shutil.copy2(notes_file, notes_dest)
             organized_files['notes'] = notes_dest
         
         # Copy policy file if provided
         if policy_file and os.path.exists(policy_file):
-            policy_dest = f"{folders['policy_dir']}/policy_info.csv"
+            policy_dest = f"{date_dir}/policy_info.csv"
             shutil.copy2(policy_file, policy_dest)
             organized_files['policy'] = policy_dest
         
@@ -99,14 +88,14 @@ class DataOrganizer:
         Returns:
             List of file paths that exist for this extraction date
         """
-        folders = self.create_folder_structure(extraction_date)
+        date_dir = f"{self.base_data_dir}/{extraction_date}"
         input_files = []
         
-        # Check for standard file locations
+        # Check for standard file locations directly in date folder
         potential_files = [
-            f"{folders['clm_dir']}/clm_with_amt.csv",
-            f"{folders['notes_dir']}/notes_summary.csv", 
-            f"{folders['policy_dir']}/policy_info.csv"
+            f"{date_dir}/clm_with_amt.csv",
+            f"{date_dir}/notes_summary.csv", 
+            f"{date_dir}/policy_info.csv"
         ]
         
         for file_path in potential_files:
@@ -265,33 +254,26 @@ class CacheManager:
         
         return True
     
-    def get_cache_paths(self, extraction_date: Optional[str] = None, 
-                       data_hash: Optional[str] = None) -> Tuple[str, str]:
+    def get_cache_paths(self, extraction_date: str) -> Tuple[str, str]:
         """
-        Get cache file paths based on extraction date or data hash
+        Get cache file paths based on extraction date
         
         Args:
             extraction_date: Date string for structured approach
-            data_hash: Hash string for legacy approach
             
         Returns:
             Tuple of (cache_file_path, metadata_file_path)
         """
-        if extraction_date:
-            # Use structured folder approach
-            cache_dir = f"{self.base_data_dir}/{extraction_date}/cache"
-            os.makedirs(cache_dir, exist_ok=True)
-            cache_file = f"{cache_dir}/period_clm.parquet"
-            meta_file = f"{cache_dir}/period_clm_meta.pkl"
-        else:
-            # Use hash-based approach
-            cache_file = f"{self.base_data_dir}/period_clm_{data_hash}.parquet"
-            meta_file = f"{self.base_data_dir}/period_clm_{data_hash}_meta.pkl"
+        # Use structured folder approach - cache files go directly in date folder
+        date_dir = f"{self.base_data_dir}/{extraction_date}"
+        os.makedirs(date_dir, exist_ok=True)
+        cache_file = f"{date_dir}/period_clm.parquet"
+        meta_file = f"{date_dir}/period_clm_meta.pkl"
         
         return cache_file, meta_file
     
     def save_cache(self, periods_df: pd.DataFrame, df_txn: pd.DataFrame,
-                  extraction_date: Optional[str] = None,
+                  extraction_date: str,
                   input_files: Optional[List[str]] = None,
                   config: Optional[StandardizationConfig] = None) -> bool:
         """
@@ -308,12 +290,8 @@ class CacheManager:
             True if cache was saved successfully, False otherwise
         """
         try:
-            # Determine cache paths
-            if extraction_date:
-                cache_file, meta_file = self.get_cache_paths(extraction_date=extraction_date)
-            else:
-                data_hash = self._create_data_hash(df_txn, input_files)
-                cache_file, meta_file = self.get_cache_paths(data_hash=data_hash)
+            # Get cache paths
+            cache_file, meta_file = self.get_cache_paths(extraction_date)
             
             # Create metadata
             cache_meta = self._create_cache_metadata(df_txn, periods_df, input_files, extraction_date, config)
@@ -331,7 +309,7 @@ class CacheManager:
             return False
     
     def load_cache(self, df_txn: pd.DataFrame,
-                  extraction_date: Optional[str] = None,
+                  extraction_date: str,
                   input_files: Optional[List[str]] = None,
                   config: Optional[StandardizationConfig] = None) -> Optional[pd.DataFrame]:
         """
@@ -347,12 +325,8 @@ class CacheManager:
             Cached DataFrame if valid, None otherwise
         """
         try:
-            # Determine cache paths
-            if extraction_date:
-                cache_file, meta_file = self.get_cache_paths(extraction_date=extraction_date)
-            else:
-                data_hash = self._create_data_hash(df_txn, input_files)
-                cache_file, meta_file = self.get_cache_paths(data_hash=data_hash)
+            # Get cache paths
+            cache_file, meta_file = self.get_cache_paths(extraction_date)
             
             # Check if cache files exist
             if not os.path.exists(cache_file) or not os.path.exists(meta_file):
@@ -388,15 +362,15 @@ class CacheManager:
     def list_available_caches(self) -> List[Dict[str, Any]]:
         """
         List all available cache files with their metadata for cache selection UI
-        Supports both structured folder approach and legacy hash-based approach
+        Only supports structured folder approach by extraction date
         """
         cache_info = []
         
-        # Method 1: Check structured folders (extraction_date/cache/)
-        date_folders = glob.glob(f"{self.base_data_dir}/*/cache/")
-        for cache_dir in date_folders:
-            cache_file = os.path.join(cache_dir, "period_clm.parquet")
-            meta_file = os.path.join(cache_dir, "period_clm_meta.pkl")
+        # Check structured folders (extraction_date/)
+        date_folders = glob.glob(f"{self.base_data_dir}/*/")
+        for date_dir in date_folders:
+            cache_file = os.path.join(date_dir, "period_clm.parquet")
+            meta_file = os.path.join(date_dir, "period_clm_meta.pkl")
             
             if os.path.exists(cache_file) and os.path.exists(meta_file):
                 try:
@@ -404,7 +378,7 @@ class CacheManager:
                         meta = pickle.load(f)
                     
                     # Extract date from folder path
-                    extraction_date = os.path.basename(os.path.dirname(cache_dir))
+                    extraction_date = os.path.basename(date_dir.rstrip('/'))
                     
                     # Calculate file size
                     cache_size = os.path.getsize(cache_file) / (1024 * 1024)  # MB
@@ -424,52 +398,14 @@ class CacheManager:
                         'num_transactions': meta.get('num_transactions', 0),
                         'num_claims': meta.get('num_claims', 0),
                         'cache_size_mb': round(cache_size, 1),
-                        'input_files': meta.get('input_files', []),
-                        'type': 'structured'
+                        'input_files': meta.get('input_files', [])
                     })
                 except Exception as e:
                     # Skip corrupted metadata files
                     continue
         
-        # Method 2: Check legacy hash-based files
-        hash_files = glob.glob(f"{self.base_data_dir}/period_clm_*.parquet")
-        for cache_file in hash_files:
-            # Extract hash from filename
-            hash_part = os.path.basename(cache_file).replace("period_clm_", "").replace(".parquet", "")
-            meta_file = f"{self.base_data_dir}/period_clm_{hash_part}_meta.pkl"
-            
-            if os.path.exists(meta_file):
-                try:
-                    with open(meta_file, 'rb') as f:
-                        meta = pickle.load(f)
-                    
-                    # Calculate file size
-                    cache_size = os.path.getsize(cache_file) / (1024 * 1024)  # MB
-                    
-                    # Parse creation date
-                    try:
-                        created_date = datetime.fromisoformat(meta['created_at']).strftime('%Y-%m-%d %H:%M')
-                    except:
-                        created_date = "Unknown"
-                    
-                    cache_info.append({
-                        'hash': hash_part,
-                        'file_path': cache_file,
-                        'meta_file': meta_file,
-                        'description': meta.get('description', 'Unknown'),
-                        'created_at': created_date,
-                        'num_transactions': meta.get('num_transactions', 0),
-                        'num_claims': meta.get('num_claims', 0),
-                        'cache_size_mb': round(cache_size, 1),
-                        'input_files': meta.get('input_files', []),
-                        'type': 'legacy'
-                    })
-                except Exception as e:
-                    # Skip corrupted metadata files
-                    continue
-        
-        # Sort by creation date (newest first), prioritizing structured folders
-        cache_info.sort(key=lambda x: (x.get('extraction_date', ''), x['created_at']), reverse=True)
+        # Sort by extraction date (newest first)
+        cache_info.sort(key=lambda x: x['extraction_date'], reverse=True)
         return cache_info
     
     def cleanup_old_caches(self, keep_extraction_dates: Optional[List[str]] = None) -> None:
@@ -477,37 +413,21 @@ class CacheManager:
         Clean up old cache files, optionally keeping specific extraction dates
         
         Args:
-            keep_extraction_dates: List of extraction dates to keep (for structured caches)
+            keep_extraction_dates: List of extraction dates to keep
         """
         if keep_extraction_dates is None:
             keep_extraction_dates = []
         
-        # Clean up legacy hash-based files (keep only most recent 3)
-        hash_files = glob.glob(f"{self.base_data_dir}/period_clm_*.parquet")
-        if len(hash_files) > 3:
-            # Sort by modification time and remove oldest
-            hash_files.sort(key=lambda x: os.path.getmtime(x))
-            for old_file in hash_files[:-3]:
-                try:
-                    os.remove(old_file)
-                    # Also remove corresponding metadata file
-                    meta_file = old_file.replace('.parquet', '_meta.pkl')
-                    if os.path.exists(meta_file):
-                        os.remove(meta_file)
-                    print(f"🗑️ Removed old cache: {os.path.basename(old_file)}")
-                except Exception as e:
-                    print(f"⚠️ Could not remove old cache {old_file}: {e}")
-        
-        # Clean up structured caches not in keep list
-        date_folders = glob.glob(f"{self.base_data_dir}/*/cache/")
-        for cache_dir in date_folders:
-            extraction_date = os.path.basename(os.path.dirname(cache_dir))
+        # Clean up date folders not in keep list
+        date_folders = glob.glob(f"{self.base_data_dir}/*/")
+        for date_dir in date_folders:
+            extraction_date = os.path.basename(date_dir.rstrip('/'))
             if extraction_date not in keep_extraction_dates:
                 try:
-                    shutil.rmtree(cache_dir)
-                    print(f"🗑️ Removed old structured cache: {extraction_date}")
+                    shutil.rmtree(date_dir)
+                    print(f"🗑️ Removed old cache: {extraction_date}")
                 except Exception as e:
-                    print(f"⚠️ Could not remove structured cache {extraction_date}: {e}")
+                    print(f"⚠️ Could not remove cache {extraction_date}: {e}")
 
 
 class DataLoader:
