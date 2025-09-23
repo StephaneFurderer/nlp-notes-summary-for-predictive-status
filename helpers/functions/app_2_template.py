@@ -126,12 +126,17 @@ class ClaimsAnalysisTemplate:
         """Render original transaction data."""
         st.subheader("📋 Original Transaction Data")
         
-        # Display original transactions
-        display_cols = ['datetxn', 'paid', 'expense', 'recovery', 'reserve', 'paid_cumsum', 'expense_cumsum', 'incurred_cumsum']
-        available_cols = [col for col in display_cols if col in df_raw_txn_filtered.columns]
+        # Apply normalization if available
+        df_display_data = df_raw_txn_filtered.copy()
+        if hasattr(self, 'transformer') and self.transformer.normalization_computed:
+            df_display_data = self.transformer.apply_normalization(df_display_data)
+        
+        # Display original transactions (including normalized columns if available)
+        display_cols = ['datetxn', 'paid', 'paid_normalized', 'expense', 'expense_normalized', 'recovery', 'reserve', 'paid_cumsum', 'expense_cumsum', 'incurred_cumsum']
+        available_cols = [col for col in display_cols if col in df_display_data.columns]
         
         # Sort by date
-        df_display = df_raw_txn_filtered[available_cols].sort_values('datetxn').copy()
+        df_display = df_display_data[available_cols].sort_values('datetxn').copy()
         st.write(f"**Found {len(df_display)} transactions for claim {claim_filter}**")
         
         # Handle data types robustly to avoid JSON serialization issues
@@ -207,12 +212,12 @@ class ClaimsAnalysisTemplate:
         """Render standardized data section."""
         st.subheader("🔄 Standardized Periods")
         
-        # Transform the data
-        transformer = StandardizedClaimsTransformer(config)
+        # Use the shared transformer instance and update its config
+        self.transformer.config = config
         
         try:
             with st.spinner("Standardizing claim data..."):
-                dataset = transformer.transform_claims_data(df_raw_txn_filtered)
+                dataset = self.transformer.transform_claims_data(df_raw_txn_filtered)
             
             st.write(f"**Dataset created with {len(dataset.claims)} claims**")
             
@@ -230,9 +235,13 @@ class ClaimsAnalysisTemplate:
                         'Period Start': period.period_start_date.strftime('%Y-%m-%d'),
                         'Period End': period.period_end_date.strftime('%Y-%m-%d'),
                         'Incremental Paid': f"${period.incremental_paid:,.2f}",
+                        'Incremental Paid (Norm)': f"{period.incremental_paid_normalized:.4f}",
                         'Incremental Expense': f"${period.incremental_expense:,.2f}",
+                        'Incremental Expense (Norm)': f"{period.incremental_expense_normalized:.4f}",
                         'Cumulative Paid': f"${period.cumulative_paid:,.2f}",
+                        'Cumulative Paid (Norm)': f"{period.cumulative_paid_normalized:.4f}",
                         'Cumulative Expense': f"${period.cumulative_expense:,.2f}",
+                        'Cumulative Expense (Norm)': f"{period.cumulative_expense_normalized:.4f}",
                         'Cumulative Incurred': f"${period.cumulative_incurred:,.2f}",
                         'Has Payment': 'Yes' if period.has_payment else 'No',
                         'Has Expense': 'Yes' if period.has_expense else 'No',
