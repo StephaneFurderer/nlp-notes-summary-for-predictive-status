@@ -45,12 +45,20 @@ class DynamicClaimPeriod(BaseModel):
     incremental_recovery: float = Field(0.0, description="Incremental recovery amount in this period")
     incremental_reserve: float = Field(0.0, description="Incremental reserve change in this period")
     
+    # Normalized incremental amounts for this period (z-score normalized)
+    incremental_paid_normalized: float = Field(0.0, description="Normalized incremental paid amount in this period")
+    incremental_expense_normalized: float = Field(0.0, description="Normalized incremental expense amount in this period")
+    
     # Cumulative amounts up to this period
     cumulative_paid: float = Field(0.0, description="Cumulative paid amount up to this period")
     cumulative_expense: float = Field(0.0, description="Cumulative expense amount up to this period")
     cumulative_recovery: float = Field(0.0, description="Cumulative recovery amount up to this period")
     cumulative_reserve: float = Field(0.0, description="Cumulative reserve amount up to this period")
     cumulative_incurred: float = Field(0.0, description="Cumulative incurred amount up to this period")
+    
+    # Normalized cumulative amounts up to this period (z-score normalized)
+    cumulative_paid_normalized: float = Field(0.0, description="Normalized cumulative paid amount up to this period")
+    cumulative_expense_normalized: float = Field(0.0, description="Normalized cumulative expense amount up to this period")
     
     # Period-specific features
     num_transactions: int = Field(0, description="Number of transactions in this period")
