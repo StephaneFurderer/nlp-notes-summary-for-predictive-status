@@ -118,12 +118,22 @@ class StandardizedClaimsTransformer:
             print(f"Claim {claim_num}: Not enough periods ({len(dynamic_periods)} < {self.config.min_periods})")
             return None
         
-        # Calculate summary metrics
-        total_paid = max([p.cumulative_paid for p in dynamic_periods], default=0.0)
-        total_expense = max([p.cumulative_expense for p in dynamic_periods], default=0.0)
-        total_recovery = max([p.cumulative_recovery for p in dynamic_periods], default=0.0)
-        final_incurred = max([p.cumulative_incurred for p in dynamic_periods], default=0.0)
-        final_reserve = max([p.cumulative_reserve for p in dynamic_periods], default=0.0)
+        # Calculate summary metrics - use LAST period's cumulative values (not max)
+        # This correctly represents the final cash flow position for reserving
+        if dynamic_periods:
+            last_period = dynamic_periods[-1]
+            total_paid = last_period.cumulative_paid
+            total_expense = last_period.cumulative_expense
+            total_recovery = last_period.cumulative_recovery
+            final_incurred = last_period.cumulative_incurred
+            final_reserve = last_period.cumulative_reserve
+        else:
+            # No periods available
+            total_paid = 0.0
+            total_expense = 0.0
+            total_recovery = 0.0
+            final_incurred = 0.0
+            final_reserve = 0.0
         
         # Create standardized claim
         standardized_claim = StandardizedClaim(

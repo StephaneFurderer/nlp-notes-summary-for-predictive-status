@@ -40,4 +40,4 @@ with st.spinner("Loading data..."):
 st.success(f"✅ Loaded {len(df_raw_txn):,} transactions for {df_raw_txn['clmNum'].nunique():,} claims")
 
 # Run the app using the template
-template.run_app(df_raw_txn, claim_filter_func=filter_claims_real_data, show_all_transactions=False, df_raw_final=df_raw_final)
+template.run_app(df_raw_txn, claim_filter_func=filter_claims_real_data, show_all_transactions=True, df_raw_final=df_raw_final)
