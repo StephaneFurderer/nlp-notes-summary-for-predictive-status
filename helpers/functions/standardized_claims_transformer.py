@@ -40,7 +40,67 @@ class StandardizedClaimsTransformer:
         self.period_normalization_params: Optional[Dict[str, Any]] = None
         self.normalization_computed = False
         self.period_normalization_computed = False
-        
+
+        # Initialize cache and data management
+        self._initialize_managers()
+
+    @staticmethod
+    def get_schema_payment_columns() -> List[str]:
+        """
+        Get payment column names from the pydantic schema
+
+        Returns:
+            List of payment column names from DynamicClaimPeriod schema
+        """
+        # Get field names from DynamicClaimPeriod that contain payment information
+        schema_fields = DynamicClaimPeriod.__fields__
+
+        payment_columns = []
+        for field_name, field_info in schema_fields.items():
+            # Look for incremental payment fields
+            if field_name.startswith('incremental_'):
+                # Check field description if available
+                description = ""
+                if hasattr(field_info, 'description') and field_info.description:
+                    description = field_info.description.lower()
+                elif hasattr(field_info, 'field_info') and hasattr(field_info.field_info, 'description'):
+                    description = field_info.field_info.description.lower()
+
+                if any(term in description for term in ['paid', 'expense', 'amount']) or field_name in ['incremental_paid', 'incremental_expense']:
+                    payment_columns.append(field_name)
+
+        # Fallback to known payment types if schema parsing fails
+        if not payment_columns:
+            payment_columns = ['incremental_paid', 'incremental_expense']
+
+        return payment_columns
+
+    @staticmethod
+    def detect_payment_columns_in_dataframe(df: pd.DataFrame) -> List[str]:
+        """
+        Detect which payment columns actually exist in the dataframe
+
+        Args:
+            df: DataFrame to check
+
+        Returns:
+            List of payment columns that exist in the dataframe
+        """
+        schema_columns = StandardizedClaimsTransformer.get_schema_payment_columns()
+        available_columns = df.columns.tolist()
+
+        # Check schema-based columns first
+        found_columns = [col for col in schema_columns if col in available_columns]
+
+        # Fallback to legacy column names if schema columns not found
+        if not found_columns:
+            legacy_columns = ['paid', 'expense']
+            found_columns = [col for col in legacy_columns if col in available_columns]
+
+        return found_columns
+
+    def _initialize_managers(self):
+        """Initialize cache and data management components"""
         # Cache and data management
         self.cache_manager = CacheManager()
         self.data_organizer = DataOrganizer()
@@ -79,12 +139,11 @@ class StandardizedClaimsTransformer:
             return
         
         # Step 2: Calculate normalization parameters for each payment type
-        # Use the correct column names from the standardized schema
-        payment_types = ['incremental_paid', 'incremental_expense']
+        # Use schema-driven approach to detect correct column names
+        payment_types = self.detect_payment_columns_in_dataframe(df_completed_txn)
 
-        # Check which payment columns actually exist in the dataframe
-        available_columns = df_completed_txn.columns.tolist()
-        print(f"Available columns in df_completed_txn: {available_columns}")
+        print(f"Available columns in df_completed_txn: {df_completed_txn.columns.tolist()}")
+        print(f"Detected payment columns: {payment_types}")
 
         for payment_type in payment_types:
             if payment_type not in df_completed_txn.columns:
@@ -132,7 +191,8 @@ class StandardizedClaimsTransformer:
         df_normalized = df_txn.copy()
         
         # Apply z-score normalization to each payment type
-        for payment_type in ['incremental_paid', 'incremental_expense']:
+        payment_types = self.detect_payment_columns_in_dataframe(df_normalized)
+        for payment_type in payment_types:
             if payment_type not in df_normalized.columns:
                 print(f"Warning: Column '{payment_type}' not found. Skipping normalization.")
                 continue
@@ -192,7 +252,7 @@ class StandardizedClaimsTransformer:
         )
         
         # Plot original and normalized distributions
-        payment_types = ['incremental_paid', 'incremental_expense']
+        payment_types = self.detect_payment_columns_in_dataframe(df_completed_txn)
         colors = ['blue', 'red']
         
         for i, payment_type in enumerate(payment_types):
