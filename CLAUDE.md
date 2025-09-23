@@ -4,176 +4,149 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Streamlit application for analyzing insurance claims data with notes review functionality. The application provides predictive status analysis by processing claims transactions and associated notes data to help identify patterns and insights for claims management.
+This is a Streamlit application for insurance claims analysis using Natural Language Processing to predict claim outcomes from notes data. The system provides machine learning models to analyze claim status (PAID, DENIED, CLOSED) with NLP feature extraction, keyword analysis, and sentiment analysis capabilities.
 
 ## Key Commands
 
-### Running the Application
+### Environment Setup
 ```bash
-streamlit run app.py
+# Create and activate conda environment (recommended)
+conda create -n nlp-notes python=3.9 -y
+conda activate nlp-notes
+
+# Install dependencies
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
 ```
 
-### Data Processing
-The application automatically loads and processes data from the `_data/` directory:
-- Claims transaction data: `_data/clm_with_amt.csv`
-- Notes data: `_data/notes.csv`
-- Processed data is cached as parquet files for performance
+### Running Applications
+```bash
+# Main comprehensive NLP analysis application
+streamlit run app.py
 
-## Architecture
+# Standardized claims visualization (micro-level reserving)
+streamlit run app_2.py
 
-### Core Components
+# Demo version
+streamlit run app_2_demo.py
+```
 
-**Main Application (`app.py`)**
-- Streamlit interface for claims analysis
-- Date-based filtering for report generation
-- Interactive claim selection and filtering by cause
-- Notes timeline visualization for individual claims
+### Data Processing Commands
+```bash
+# Debug data structure issues
+python debug_data_structure.py
 
-**Data Processing (`helpers/functions/data_utils.py`)**
-- `load_data()`: Main data loading function that returns 8 dataframes for different views
-- `import_data()`: Processes raw CSV data and creates optimized parquet files
-- `aggregate_by_booking_policy_claim()`: Core business logic for claim amount calculations
-- `calculate_claim_amounts()`: Handles payment categorization (Benefit, Expense, Recovery, Reserve)
+# Test structured data management examples
+python example_structured_data_management.py
+python example_simplified_structure.py
+python example_multi_file_caching.py
+```
 
-**Notes Analysis (`helpers/functions/notes_utils.py`)**
-- `NotesReviewerAgent`: Main class for notes processing and analysis
-- Automatic CSV to parquet conversion for performance
-- Timeline generation and note frequency analysis
-- Search functionality across notes content
+## Architecture Overview
 
-### Data Model
+### Core Application Structure
 
-**Claims Data Structure:**
-- Claims are grouped by `booknum`, `cidpol`, `clmNum`
-- Status tracking: OPEN, CLOSED, PAID, DENIED, etc.
-- Financial calculations: paid, expense, recovery, reserve, incurred amounts
-- Temporal tracking: `dateCompleted`, `dateReopened`, `datetxn`
+**Main Applications:**
+- `app.py`: Primary Streamlit interface with 7 analysis tabs (Feature Summary, Claim Analysis, Insights, ML Baseline, Pattern Analysis, Enhanced Model, NER Model)
+- `app_2.py`: Standardized claims visualization following micro-level reserving framework
+- `app_2_demo.py`: Demo version with simplified interface
 
-**Transaction vs Final Views:**
-- Transaction view (`transaction_view=True`): Shows all transactions over time with cumulative calculations
-- Final view: Shows only the latest state for each claim
+**Helper Module Organization (`helpers/functions/`):**
 
-**Report Date Logic:**
-- When a report date is specified, the system filters data to show claim status as of that date
-- Claims not closed by report date are treated as open
-- Claims closed and not reopened by report date remain closed
+**Data Processing Layer:**
+- `claims_utils.py`: Core data loading, filtering, and claim feature calculation with vectorized operations and intelligent caching
+- `load_cache_data.py`: Structured data management with extraction date organization
+- `standardized_claims_transformer.py`: Transforms raw transaction data to standardized 30-day periods
+- `standardized_claims_schema.py`: Configuration for claim data standardization
 
-### Data Directory Structure
+**NLP Analysis Layer:**
+- `nlp_utils.py`: `ClaimNotesNLPAnalyzer` class with 8 keyword categories, sentiment analysis, and report-date-aware caching
+- `notes_utils.py`: `NotesReviewerAgent` for notes processing, CSV to parquet conversion, timeline generation
+- `pattern_analysis.py`: `ClaimNotesPatternAnalyzer` for discovering discriminative terms and n-grams
+
+**Machine Learning Layer:**
+- `ml_models.py`: Three model classes - `ClaimStatusBaselineModel` (Random Forest + NLP features), `ClaimStatusEnhancedModel` (+ TF-IDF), `ClaimStatusNERModel` (+ Named Entity Recognition)
+
+**Visualization Layer:**
+- `plot_utils.py`: Claim lifetime visualization and plotting utilities
+- `app_2_template.py`: Reusable Streamlit interface template for claims analysis
+
+### Data Management Architecture
+
+**Data Directory Structure:**
 ```
 _data/
-├── clm_with_amt.csv        # Raw claims transaction data
-├── clm_with_amt.parquet    # Processed claims data (auto-generated)
-├── notes.csv               # Raw notes data
-├── notes.parquet           # Processed notes data (auto-generated)
-└── cache/                  # Feature calculation cache directory
-    └── claim_features_*.parquet  # Cached claim feature calculations
+├── [extraction_date]/           # Organized by extraction date
+│   ├── clm_with_amt.csv        # Raw claims transaction data
+│   ├── clm_with_amt.parquet    # Processed claims data
+│   ├── notes.csv               # Raw notes data
+│   └── notes.parquet           # Processed notes data
+└── cache/                      # Performance optimization caches
+    ├── claim_features_*.parquet     # Vectorized claim features
+    └── nlp_features_*.parquet       # NLP analysis results
 ```
 
-## Performance Optimizations
+**Caching Strategy:**
+- **Feature Calculation Caching**: `calculate_claim_features()` uses data hash-based caching in `_data/cache/`
+- **NLP Analysis Caching**: `analyze_claims_with_caching()` combines notes data hash with report date for unique cache keys
+- **Data Loading Caching**: Streamlit `@st.cache_data` decorators for UI performance
 
-### Feature Calculation Caching
-The `calculate_claim_features` function includes intelligent caching:
-- Generates data hash to detect changes in input data
-- Caches results as parquet files in `_data/cache/`
-- Automatically loads from cache when data hasn't changed
-- Use `force_recalculate=True` to bypass cache when needed
+### Machine Learning Pipeline
 
-### NLP Analysis Caching
-The `analyze_claims_with_caching` function provides report-date-aware caching:
-- Combines notes data hash with report date for unique cache keys
-- Creates separate cache files for different report dates
-- Filters notes by report date before analysis when specified
-- Stores results as `nlp_features_[hash].parquet` files
-- Instant loading for previously analyzed date combinations
+**Three-Tier Model Architecture:**
+1. **Baseline Model**: Random Forest with NLP features (keyword counts, sentiment, communication metrics)
+2. **Enhanced Model**: Adds TF-IDF text vectorization for improved feature representation
+3. **NER Model**: Incorporates Named Entity Recognition using spaCy for maximum accuracy
 
-### Vectorized Operations
-- Replaced claim-by-claim loops with pandas groupby operations
-- Uses vectorized calculations for all metrics (26+ features per claim)
-- Significant performance improvement for large datasets
-- Maintains identical results to original implementation
+**Feature Categories (26+ features per claim):**
+- Financial terms, process/investigation terms, sentiment indicators
+- Urgency markers, outcome terms, legal/dispute terms
+- Documentation terms, stakeholder terms
+- Communication frequency, sentiment scores, temporal patterns
 
-## NLP Research: Predicting Claim Status from Notes
+### Key Business Logic
 
-### Project Structure for NLP Analysis
+**Claim Status Logic:**
+- Claims grouped by `booknum`, `cidpol`, `clmNum` for unique identification
+- Transaction vs Final views: All transactions over time vs latest state only
+- Report date filtering: Shows claim status as of specific date with temporal logic
+- Financial calculations: Benefit, Expense, Recovery, Reserve categorization with cumulative tracking
 
-The goal is to extract key information from claim notes to predict claim status (PAID/CLOSED/DENIED) using classification models.
+**NLP Processing Pipeline:**
+1. Text preprocessing and cleaning
+2. Domain-specific keyword extraction (8 categories)
+3. Sentiment analysis with insurance-specific weights
+4. Named entity recognition for people, organizations, locations
+5. Temporal pattern analysis and communication frequency metrics
 
-### Text Feature Extraction Approaches
+## Development Guidelines
 
-#### 1. Keyword/Phrase Analysis
-- **Domain-specific terms**: "investigation", "fraud", "medical records", "liability", "settlement"
-- **Sentiment indicators**: "disputed", "agreed", "denied", "approved", "pending"
-- **Urgency markers**: "urgent", "immediate", "follow-up required", "deadline"
-- **Financial terms**: "estimate", "quote", "damage assessment", "coverage limit"
+### Performance Optimization
+- Use vectorized pandas operations instead of claim-by-claim loops
+- Leverage intelligent caching for expensive calculations (features, NLP analysis)
+- All caching uses data hashes to detect changes and auto-invalidate
+- Parquet files for optimized data storage and loading
 
-#### 2. Named Entity Recognition (NER)
-- **People**: Adjuster names, claimant names, witness names
-- **Organizations**: Repair shops, medical facilities, legal firms
-- **Locations**: Accident locations, addresses
-- **Dates**: Important deadlines, incident dates, follow-up dates
-- **Monetary amounts**: Claim values, deductibles, estimates
+### Data Processing Patterns
+- Always check cache existence before expensive calculations
+- Use `force_recalculate=True` parameter to bypass caches when needed
+- Filter data by report date before analysis when specified
+- Maintain transaction order with `sort_values(['clmNum', 'datetxn'])`
 
-#### 3. Temporal Pattern Analysis
-- **Note frequency**: Claims with many notes vs. few notes
-- **Time gaps**: Long periods without updates might indicate stalled claims
-- **Note timing**: Notes added close to deadlines
-- **Communication patterns**: Regular vs. sporadic updates
+### Model Training Workflow
+1. Load and preprocess data with temporal filtering
+2. Extract NLP features with caching
+3. Train models incrementally (Baseline → Enhanced → NER)
+4. Compare performance across all three models
+5. Generate feature importance and prediction confidence analysis
 
-### Advanced NLP Techniques
+### spaCy Model Requirements
+- Requires `en_core_web_sm` model for NER functionality
+- Handle missing model gracefully with clear error messages
+- Use spaCy for entity extraction: PERSON, ORG, GPE, MONEY, DATE
 
-#### 4. Sentiment & Tone Analysis
-- **Conflict indicators**: "disagreement", "dispute", "challenge"
-- **Cooperation signals**: "agreed", "collaborative", "responsive"
-- **Frustration markers**: "delays", "unresponsive", "complications"
-
-#### 5. Topic Modeling
-- **Claim categories**: Medical, property damage, liability, theft
-- **Process stages**: Investigation, negotiation, documentation, closure
-- **Issue types**: Coverage disputes, fraud concerns, documentation problems
-
-#### 6. Sequential Patterns
-- **Note progression**: How language changes over time
-- **Status transitions**: Notes preceding status changes
-- **Decision indicators**: Words that appear before denials/approvals
-
-### Feature Engineering Strategy
-
-#### 7. Aggregated Metrics
-- **Note complexity**: Average words per note, vocabulary diversity
-- **Communication frequency**: Notes per day/week
-- **Stakeholder involvement**: Number of different people mentioned
-- **Process indicators**: Mentions of specific procedures or requirements
-
-#### 8. Risk Indicators
-- **Red flags**: "legal", "attorney", "lawsuit", "subpoena"
-- **Positive signals**: "straightforward", "clear", "documented"
-- **Uncertainty markers**: "unclear", "investigating", "pending"
-
-### Model Architecture Considerations
-
-#### 9. Feature Combinations
-- **Text + Financial**: Combine note features with transaction amounts
-- **Text + Temporal**: Note sentiment + time since first transaction
-- **Text + Claim attributes**: Note content + claim cause/type
-
-#### 10. Prediction Targets
-- **Binary**: Will claim be denied (Y/N)?
-- **Multi-class**: Predict final status (PAID/CLOSED/DENIED)
-- **Probability**: Likelihood of each outcome
-- **Time-to-event**: Predict when status will change
-
-### Implementation Plan
-1. Start with keyword extraction and sentiment analysis (interpretable baseline)
-2. Build domain-specific keyword dictionaries for insurance claims
-3. Implement sentiment scoring for notes
-4. Combine text features with existing claim financial features
-5. Train classification models to predict claim outcomes
-
-## Development Notes
-
-- The application uses pandas extensively for data processing
-- Parquet files are automatically generated for performance optimization
-- The `NotesReviewerAgent` can generate dummy data if notes.csv doesn't exist
-- Claims status logic includes complex business rules for determining open/closed/paid states
-- Feature calculations are cached and vectorized for optimal performance
-- The UI provides both portfolio-level and individual claim-level analysis
+### Data Validation
+- Ensure required columns exist before processing
+- Handle missing notes data by generating dummy data when needed
+- Validate claim number uniqueness and temporal consistency
+- Check for null values in critical fields before feature calculation

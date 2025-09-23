@@ -271,26 +271,53 @@ def aggregate_by_booking_policy_claim(df,transaction_view:bool = False):
     
     return grouped
 
-def import_data(reload:bool = False):
-    parquet_file = '.\_data\clm_with_amt.parquet'
-    if reload or (not os.path.exists(parquet_file)):
-        print(f"create parquet file: {parquet_file}")
-        df = pd.read_csv('.\_data\clm_with_amt.csv')
-        df['booknum'] = np.where(df['booknum'].isnull(),"NO_BOOKING_NUM",df['booknum'])
-        df['dateCompleted'] = pd.to_datetime(df['dateCompleted'],errors='coerce')
-        df['dateReopened'] = pd.to_datetime(df['dateReopened'],errors='coerce')
-        df['datetxn'] = pd.to_datetime(df['datetxn'],errors='coerce')
-        df_with_open_flag = aggregate_by_booking_policy_claim(df,transaction_view=True).sort_values('incurred',ascending=False)
-        df_with_open_flag = df_with_open_flag.join(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'),how='left',on=['clmNum'])
-        os.makedirs('./_data',exist_ok=True)
-        df_with_open_flag.to_parquet(parquet_file)
+def import_data(extraction_date=None):
+    """
+    Load and process claims data using DataLoader
+
+    Args:
+        extraction_date: Date string in YYYY-MM-DD format (e.g., '2025-09-21')
+
+    Returns:
+        Processed DataFrame with claim features
+    """
+    from .load_cache_data import DataLoader
+
+    # Initialize DataLoader
+    data_loader = DataLoader()
+
+    # If extraction_date is provided, use structured data loading
+    if extraction_date:
+        df = data_loader.load_claims_data(extraction_date=extraction_date)
+        if df is None:
+            raise FileNotFoundError(f"No claims data found for extraction date {extraction_date}")
     else:
-        print(f"load parquet file: {parquet_file}")
-        df_with_open_flag = pd.read_parquet(parquet_file)
+        # Fallback: try to find the most recent extraction date
+        available_versions = data_loader.get_available_data_versions()
+        if not available_versions:
+            raise FileNotFoundError("No organized claims data found. Please specify extraction_date.")
+
+        # Use the most recent extraction date
+        latest_date = available_versions[0]['extraction_date']
+        print(f"Using latest available extraction date: {latest_date}")
+        df = data_loader.load_claims_data(extraction_date=latest_date)
+        if df is None:
+            raise FileNotFoundError(f"Failed to load claims data for {latest_date}")
+
+    # Process the data
+    df['booknum'] = np.where(df['booknum'].isnull(), "NO_BOOKING_NUM", df['booknum'])
+    df['dateCompleted'] = pd.to_datetime(df['dateCompleted'], errors='coerce')
+    df['dateReopened'] = pd.to_datetime(df['dateReopened'], errors='coerce')
+    df['datetxn'] = pd.to_datetime(df['datetxn'], errors='coerce')
+
+    # Aggregate and process
+    df_with_open_flag = aggregate_by_booking_policy_claim(df, transaction_view=True).sort_values('incurred', ascending=False)
+    df_with_open_flag = df_with_open_flag.join(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
+
     return df_with_open_flag
 
 
-def load_data(report_date = None):
+def load_data(report_date=None, extraction_date=None):
     """
     Load the data and return the dataframes:
     df_raw_txn: raw transaction data containing all transactions
@@ -299,6 +326,10 @@ def load_data(report_date = None):
     paid_txn: paid claims containing all transactions
     paid_final: final paid claims
     open_final: open claims
+
+    Args:
+        report_date: Date or datetime object for temporal filtering
+        extraction_date: Date string in YYYY-MM-DD format (e.g., '2025-09-21') for data source
 
     The final dataframes (_final) are used to get the most updated data for each claim.
     The transaction data (_txn) is used to describe the lifetime of a claim per transaction date.
@@ -380,7 +411,7 @@ def load_data(report_date = None):
         
         return df
 
-    df_raw_txn = import_data()
+    df_raw_txn = import_data(extraction_date)
     # For real data, use clmStatus
     closed_txn = df_raw_txn[df_raw_txn['policy_has_open_claims'] == False]
     paid_txn = closed_txn[closed_txn['clmStatus'].isin(['PAID'])]
