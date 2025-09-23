@@ -1,7 +1,7 @@
 from helpers.functions.claims_utils import load_data
 
 # Load data from a specific date
-extraction_date = "2025-01-02"
+extraction_date = "2025-09-21"
 data = load_data(extraction_date=extraction_date)
 
 # Unpack the data
