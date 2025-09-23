@@ -170,6 +170,24 @@ def _filter_by_(df,col,value):
 # Identify the main amounts: reserve, paid, expense
 def calculate_claim_amounts(df):
     """ Calculate the main amounts: reserve, paid, expense """
+
+    # Check if required columns exist
+    required_columns = ['paymentType', 'processCategory', 'amt']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+
+    if missing_columns:
+        print(f"⚠️ Missing required columns for payment calculation: {missing_columns}")
+        print(f"💡 Available columns: {df.columns.tolist()}")
+        print("💡 Cannot calculate paid/expense amounts without these columns")
+
+        # Create empty columns to prevent errors
+        df['paid'] = 0
+        df['expense'] = 0
+        df['recovery'] = 0
+        df['reserve'] = 0
+        df['incurred'] = 0
+        return df
+
     # Create the basic CASE logic for each payment type and category
     conditions_benefit = (df['paymentType'] == 'Benefit') & (df['processCategory'].str.contains('CLAIM', case=False, na=False))
     conditions_expense = (df['paymentType'] == 'Expense') & (df['processCategory'].str.contains('CLAIM', case=False, na=False))
@@ -289,8 +307,13 @@ def import_data(extraction_date=None):
     # If extraction_date is provided, use structured data loading
     if extraction_date:
         df = data_loader.load_claims_data(extraction_date=extraction_date)
-        if df is None:
-            raise FileNotFoundError(f"No claims data found for extraction date {extraction_date}")
+        if df is None or df.empty:
+            print(f"⚠️ No claims data found for extraction date {extraction_date}")
+            print("💡 This might be because:")
+            print("   - The CSV file is empty")
+            print("   - The CSV file doesn't exist")
+            print("   - The file has no valid data")
+            raise FileNotFoundError(f"No valid claims data found for extraction date {extraction_date}")
     else:
         # Fallback: try to find the most recent extraction date
         available_versions = data_loader.get_available_data_versions()
