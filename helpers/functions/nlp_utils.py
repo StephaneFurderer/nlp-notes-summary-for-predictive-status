@@ -302,7 +302,7 @@ def _generate_nlp_data_hash(notes_df: pd.DataFrame, report_date=None) -> str:
 
 def _get_nlp_cache_path(data_hash: str) -> str:
     """Get the cache file path for NLP features"""
-    cache_dir = './_data/cache'
+    cache_dir = os.path.join('.', '_data', 'cache')
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f'nlp_features_{data_hash}.parquet')
 

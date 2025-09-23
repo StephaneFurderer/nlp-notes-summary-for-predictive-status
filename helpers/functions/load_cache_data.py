@@ -42,7 +42,7 @@ class DataOrganizer:
         Returns:
             Path to the date directory
         """
-        date_dir = f"{self.base_data_dir}/{extraction_date}"
+        date_dir = os.path.join(self.base_data_dir, extraction_date)
         os.makedirs(date_dir, exist_ok=True)
         return date_dir
     
@@ -66,19 +66,19 @@ class DataOrganizer:
         
         # Copy claims file
         if os.path.exists(claims_file):
-            clm_dest = f"{date_dir}/clm_with_amt.csv"
+            clm_dest = os.path.join(date_dir, "clm_with_amt.csv")
             shutil.copy2(claims_file, clm_dest)
             organized_files['claims'] = clm_dest
-        
+
         # Copy notes file if provided
         if notes_file and os.path.exists(notes_file):
-            notes_dest = f"{date_dir}/notes_summary.csv"
+            notes_dest = os.path.join(date_dir, "notes_summary.csv")
             shutil.copy2(notes_file, notes_dest)
             organized_files['notes'] = notes_dest
-        
+
         # Copy policy file if provided
         if policy_file and os.path.exists(policy_file):
-            policy_dest = f"{date_dir}/policy_info.csv"
+            policy_dest = os.path.join(date_dir, "policy_info.csv")
             shutil.copy2(policy_file, policy_dest)
             organized_files['policy'] = policy_dest
         
@@ -94,14 +94,14 @@ class DataOrganizer:
         Returns:
             List of file paths that exist for this extraction date
         """
-        date_dir = f"{self.base_data_dir}/{extraction_date}"
+        date_dir = os.path.join(self.base_data_dir, extraction_date)
         input_files = []
         
         # Check for standard file locations directly in date folder
         potential_files = [
-            f"{date_dir}/clm_with_amt.csv",
-            f"{date_dir}/notes_summary.csv", 
-            f"{date_dir}/policy_info.csv"
+            os.path.join(date_dir, "clm_with_amt.csv"),
+            os.path.join(date_dir, "notes_summary.csv"),
+            os.path.join(date_dir, "policy_info.csv")
         ]
         
         for file_path in potential_files:
@@ -117,11 +117,11 @@ class DataOrganizer:
         Returns:
             List of extraction date strings sorted by date (newest first)
         """
-        date_folders = glob.glob(f"{self.base_data_dir}/*/")
+        date_folders = glob.glob(os.path.join(self.base_data_dir, "*") + os.path.sep)
         extraction_dates = []
         
         for folder in date_folders:
-            date_name = os.path.basename(folder.rstrip('/'))
+            date_name = os.path.basename(folder.rstrip(os.path.sep))
             # Validate date format (YYYY-MM-DD)
             try:
                 datetime.strptime(date_name, '%Y-%m-%d')
@@ -277,10 +277,10 @@ class CacheManager:
             Tuple of (cache_file_path, metadata_file_path)
         """
         # Use structured folder approach - cache files go directly in date folder
-        date_dir = f"{self.base_data_dir}/{extraction_date}"
+        date_dir = os.path.join(self.base_data_dir, extraction_date)
         os.makedirs(date_dir, exist_ok=True)
-        cache_file = f"{date_dir}/period_clm.parquet"
-        meta_file = f"{date_dir}/period_clm_meta.pkl"
+        cache_file = os.path.join(date_dir, "period_clm.parquet")
+        meta_file = os.path.join(date_dir, "period_clm_meta.pkl")
         
         return cache_file, meta_file
     
@@ -379,7 +379,7 @@ class CacheManager:
         cache_info = []
         
         # Check structured folders (extraction_date/)
-        date_folders = glob.glob(f"{self.base_data_dir}/*/")
+        date_folders = glob.glob(os.path.join(self.base_data_dir, "*") + os.path.sep)
         for date_dir in date_folders:
             cache_file = os.path.join(date_dir, "period_clm.parquet")
             meta_file = os.path.join(date_dir, "period_clm_meta.pkl")
@@ -390,7 +390,7 @@ class CacheManager:
                         meta = pickle.load(f)
                     
                     # Extract date from folder path
-                    extraction_date = os.path.basename(date_dir.rstrip('/'))
+                    extraction_date = os.path.basename(date_dir.rstrip(os.path.sep))
                     
                     # Calculate file size
                     cache_size = os.path.getsize(cache_file) / (1024 * 1024)  # MB
@@ -431,9 +431,9 @@ class CacheManager:
             keep_extraction_dates = []
         
         # Clean up date folders not in keep list
-        date_folders = glob.glob(f"{self.base_data_dir}/*/")
+        date_folders = glob.glob(os.path.join(self.base_data_dir, "*") + os.path.sep)
         for date_dir in date_folders:
-            extraction_date = os.path.basename(date_dir.rstrip('/'))
+            extraction_date = os.path.basename(date_dir.rstrip(os.path.sep))
             if extraction_date not in keep_extraction_dates:
                 try:
                     shutil.rmtree(date_dir)

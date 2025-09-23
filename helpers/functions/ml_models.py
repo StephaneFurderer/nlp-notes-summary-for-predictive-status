@@ -1265,7 +1265,7 @@ def get_available_models(model_type: str = "all") -> pd.DataFrame:
     import os
     from datetime import datetime
 
-    model_dir = './_data/models/'
+    model_dir = os.path.join('.', '_data', 'models')
     if not os.path.exists(model_dir):
         return pd.DataFrame()
 

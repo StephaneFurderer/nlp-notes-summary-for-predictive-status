@@ -11,7 +11,7 @@ def _generate_data_hash(df):
 
 def _get_cache_path(data_hash):
     """Get the cache file path for given data hash"""
-    cache_dir = './_data/cache'
+    cache_dir = os.path.join('.', '_data', 'cache')
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f'claim_features_{data_hash}.parquet')
 
@@ -272,17 +272,17 @@ def aggregate_by_booking_policy_claim(df,transaction_view:bool = False):
     return grouped
 
 def import_data(reload:bool = False):
-    parquet_file = '.\_data\clm_with_amt.parquet'
+    parquet_file = os.path.join('.', '_data', 'clm_with_amt.parquet')
     if reload or (not os.path.exists(parquet_file)):
         print(f"create parquet file: {parquet_file}")
-        df = pd.read_csv('.\_data\clm_with_amt.csv')
+        df = pd.read_csv(os.path.join('.', '_data', 'clm_with_amt.csv'))
         df['booknum'] = np.where(df['booknum'].isnull(),"NO_BOOKING_NUM",df['booknum'])
         df['dateCompleted'] = pd.to_datetime(df['dateCompleted'],errors='coerce')
         df['dateReopened'] = pd.to_datetime(df['dateReopened'],errors='coerce')
         df['datetxn'] = pd.to_datetime(df['datetxn'],errors='coerce')
         df_with_open_flag = aggregate_by_booking_policy_claim(df,transaction_view=True).sort_values('incurred',ascending=False)
         df_with_open_flag = df_with_open_flag.join(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'),how='left',on=['clmNum'])
-        os.makedirs('./_data',exist_ok=True)
+        os.makedirs(os.path.join('.', '_data'), exist_ok=True)
         df_with_open_flag.to_parquet(parquet_file)
     else:
         print(f"load parquet file: {parquet_file}")

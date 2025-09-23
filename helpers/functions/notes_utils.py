@@ -13,13 +13,15 @@ class NotesReviewerAgent:
     for analyzing note patterns, frequencies, and relationships with claims.
     """
     
-    def __init__(self, data_dir: str = "./_data"):
+    def __init__(self, data_dir: str = None):
         """
         Initialize the NotesReviewerAgent.
-        
+
         Args:
             data_dir (str): Directory containing the notes data files
         """
+        if data_dir is None:
+            data_dir = os.path.join('.', '_data')
         self.data_dir = data_dir
         self.notes_df: Optional[pd.DataFrame] = None
         self.notes_parquet_file = os.path.join(data_dir, "notes.parquet")
@@ -314,10 +316,10 @@ if __name__ == "__main__":
     agent = NotesReviewerAgent()
     
     # Create dummy data if notes.csv doesn't exist
-    notes_csv_path = os.path.join("./_data", "notes.csv")
+    notes_csv_path = os.path.join('.', '_data', "notes.csv")
     if not os.path.exists(notes_csv_path):
         print("Creating dummy notes data...")
-        os.makedirs("./_data", exist_ok=True)
+        os.makedirs(os.path.join('.', '_data'), exist_ok=True)
         dummy_notes = create_dummy_notes_data()
         dummy_notes.to_csv(notes_csv_path, index=False)
         print(f"Created dummy notes data with {len(dummy_notes)} notes")

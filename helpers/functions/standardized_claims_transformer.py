@@ -397,7 +397,7 @@ class StandardizedClaimsTransformer:
         cache_info = []
         
         # Method 1: Check structured folders (extraction_date/cache/)
-        date_folders = glob.glob("_data/*/cache/")
+        date_folders = glob.glob(os.path.join("_data", "*", "cache") + os.path.sep)
         for cache_dir in date_folders:
             cache_file = os.path.join(cache_dir, "period_clm.parquet")
             meta_file = os.path.join(cache_dir, "period_clm_meta.pkl")
@@ -436,11 +436,11 @@ class StandardizedClaimsTransformer:
                     continue
         
         # Method 2: Check legacy hash-based files
-        hash_files = glob.glob("_data/period_clm_*.parquet")
+        hash_files = glob.glob(os.path.join("_data", "period_clm_*.parquet"))
         for cache_file in hash_files:
             # Extract hash from filename
             hash_part = os.path.basename(cache_file).replace("period_clm_", "").replace(".parquet", "")
-            meta_file = f"_data/period_clm_{hash_part}_meta.pkl"
+            meta_file = os.path.join("_data", f"period_clm_{hash_part}_meta.pkl")
             
             if os.path.exists(meta_file):
                 try:
@@ -485,8 +485,8 @@ class StandardizedClaimsTransformer:
         
         try:
             # Find all cache files
-            cache_pattern = "_data/period_clm_*.parquet"
-            meta_pattern = "_data/period_clm_*_meta.pkl"
+            cache_pattern = os.path.join("_data", "period_clm_*.parquet")
+            meta_pattern = os.path.join("_data", "period_clm_*_meta.pkl")
             
             cache_files = glob.glob(cache_pattern)
             meta_files = glob.glob(meta_pattern)
@@ -599,15 +599,15 @@ class StandardizedClaimsTransformer:
         # Determine cache paths based on extraction date or fallback to hash-based
         if extraction_date:
             # Use structured folder approach
-            cache_dir = f"_data/{extraction_date}/cache"
+            cache_dir = os.path.join("_data", extraction_date, "cache")
             os.makedirs(cache_dir, exist_ok=True)
-            cache_file = f"{cache_dir}/period_clm.parquet"
-            cache_meta_file = f"{cache_dir}/period_clm_meta.pkl"
+            cache_file = os.path.join(cache_dir, "period_clm.parquet")
+            cache_meta_file = os.path.join(cache_dir, "period_clm_meta.pkl")
         else:
             # Fallback to hash-based approach
             data_hash = self._create_data_hash(df_txn, input_files)
-            cache_file = f"_data/period_clm_{data_hash}.parquet"
-            cache_meta_file = f"_data/period_clm_{data_hash}_meta.pkl"
+            cache_file = os.path.join("_data", f"period_clm_{data_hash}.parquet")
+            cache_meta_file = os.path.join("_data", f"period_clm_{data_hash}_meta.pkl")
         
         # Check if cache exists and is valid
         if not force_recompute and os.path.exists(cache_file) and os.path.exists(cache_meta_file):

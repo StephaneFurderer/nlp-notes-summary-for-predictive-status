@@ -11,7 +11,7 @@ def _generate_data_hash(df):
 
 def _get_cache_path(data_hash):
     """Get the cache file path for given data hash"""
-    cache_dir = './_data/cache'
+    cache_dir = os.path.join('.', '_data', 'cache')
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f'claim_features_{data_hash}.parquet')
 
