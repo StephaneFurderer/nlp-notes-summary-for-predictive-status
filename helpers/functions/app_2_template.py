@@ -910,10 +910,18 @@ class ClaimsAnalysisTemplate:
                     
                     # Show cache info
                     import os
-                    cache_file = "_data/period_clm.parquet"
-                    if os.path.exists(cache_file):
-                        cache_size = os.path.getsize(cache_file) / (1024 * 1024)  # MB
-                        st.success(f"💾 **Cache Status:** Data cached in {cache_file} ({cache_size:.1f} MB)")
+                    import glob
+                    
+                    cache_files = glob.glob("_data/period_clm_*.parquet")
+                    if cache_files:
+                        total_cache_size = sum(os.path.getsize(f) for f in cache_files) / (1024 * 1024)  # MB
+                        st.success(f"💾 **Cache Status:** {len(cache_files)} cache file(s) ({total_cache_size:.1f} MB total)")
+                        
+                        # Show cache details in expander
+                        with st.expander("📋 Cache Details", expanded=False):
+                            for cache_file in cache_files:
+                                cache_size = os.path.getsize(cache_file) / (1024 * 1024)
+                                st.text(f"• {os.path.basename(cache_file)}: {cache_size:.1f} MB")
                 else:
                     st.warning("No period data available")
                 

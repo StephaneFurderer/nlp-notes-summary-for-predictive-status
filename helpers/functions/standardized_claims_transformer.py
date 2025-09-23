@@ -242,6 +242,100 @@ class StandardizedClaimsTransformer:
         print("="*60)
         
         return fig
+    
+    def _create_data_hash(self, df_txn: pd.DataFrame) -> str:
+        """
+        Create a hash of the input data for cache invalidation
+        """
+        import hashlib
+        
+        # Create a summary of the data for hashing
+        data_summary = {
+            'num_rows': len(df_txn),
+            'num_claims': df_txn[self.config.claim_number_col].nunique(),
+            'date_range': {
+                'min': str(df_txn[self.config.transaction_date_col].min()),
+                'max': str(df_txn[self.config.transaction_date_col].max())
+            },
+            'columns': sorted(df_txn.columns.tolist()),
+            'data_hash': hashlib.md5(
+                df_txn.sort_values([self.config.claim_number_col, self.config.transaction_date_col])
+                .to_string().encode()
+            ).hexdigest()[:16]  # Use first 16 chars for shorter filenames
+        }
+        
+        # Create hash from summary
+        summary_str = str(sorted(data_summary.items()))
+        return hashlib.md5(summary_str.encode()).hexdigest()[:12]
+    
+    def _create_cache_metadata(self, df_txn: pd.DataFrame, result_df: pd.DataFrame) -> dict:
+        """
+        Create metadata for cache validation
+        """
+        from datetime import datetime
+        
+        return {
+            'data_version': self._create_data_hash(df_txn),
+            'created_at': datetime.now().isoformat(),
+            'num_transactions': len(df_txn),
+            'num_claims': df_txn[self.config.claim_number_col].nunique(),
+            'num_periods': len(result_df),
+            'config': {
+                'period_length_days': self.config.period_length_days,
+                'max_periods': self.config.max_periods,
+                'min_periods': self.config.min_periods
+            },
+            'normalization_computed': self.normalization_computed
+        }
+    
+    def _validate_cache_metadata(self, cache_meta: dict, df_txn: pd.DataFrame) -> bool:
+        """
+        Validate cache metadata against current data and config
+        """
+        # Check if data hash matches
+        current_hash = self._create_data_hash(df_txn)
+        if cache_meta['data_version'] != current_hash:
+            return False
+        
+        # Check if config matches
+        if cache_meta['config']['period_length_days'] != self.config.period_length_days:
+            return False
+        if cache_meta['config']['max_periods'] != self.config.max_periods:
+            return False
+        if cache_meta['config']['min_periods'] != self.config.min_periods:
+            return False
+        
+        # Check normalization status
+        if cache_meta['normalization_computed'] != self.normalization_computed:
+            return False
+        
+        return True
+    
+    def _cleanup_old_cache_files(self, current_hash: str) -> None:
+        """
+        Clean up old cache files, keeping only the current one
+        """
+        import glob
+        
+        try:
+            # Find all cache files
+            cache_pattern = "_data/period_clm_*.parquet"
+            meta_pattern = "_data/period_clm_*_meta.pkl"
+            
+            cache_files = glob.glob(cache_pattern)
+            meta_files = glob.glob(meta_pattern)
+            
+            # Remove old files (not current)
+            for file_path in cache_files:
+                if current_hash not in file_path:
+                    os.remove(file_path)
+            
+            for file_path in meta_files:
+                if current_hash not in file_path:
+                    os.remove(file_path)
+                    
+        except Exception as e:
+            print(f"⚠️ Could not cleanup old cache files: {e}")
         
     def transform_claims_data(self, df_txn: pd.DataFrame) -> StandardizedClaimsDataset:
         """
@@ -321,33 +415,46 @@ class StandardizedClaimsTransformer:
     
     def transform_claims_data_vectorized(self, df_txn: pd.DataFrame, force_recompute: bool = False) -> pd.DataFrame:
         """
-        Fast vectorized transformation to get period data for all claims with caching
+        Fast vectorized transformation to get period data for all claims with smart caching
         
         Returns a DataFrame with all periods from all claims for fast analysis.
-        Uses parquet file caching for performance with large datasets.
+        Uses parquet file caching with data hash-based invalidation for different data versions.
         
         Args:
             df_txn: Raw transaction dataframe
             force_recompute: If True, recompute even if cache exists
         """
         import os
+        import hashlib
+        import pickle
         
-        # Cache file path
-        cache_file = "_data/period_clm.parquet"
+        # Create data hash for cache invalidation
+        data_hash = self._create_data_hash(df_txn)
+        cache_file = f"_data/period_clm_{data_hash}.parquet"
+        cache_meta_file = f"_data/period_clm_{data_hash}_meta.pkl"
         
         # Check if cache exists and is valid
-        if not force_recompute and os.path.exists(cache_file):
+        if not force_recompute and os.path.exists(cache_file) and os.path.exists(cache_meta_file):
             try:
-                # Load from cache
-                cached_df = pd.read_parquet(cache_file)
+                # Load metadata
+                with open(cache_meta_file, 'rb') as f:
+                    cache_meta = pickle.load(f)
                 
-                # Basic validation: check if cache has expected columns
-                expected_cols = ['clmNum', 'period', 'incremental_paid', 'incremental_expense', 'cumulative_paid', 'cumulative_expense']
-                if all(col in cached_df.columns for col in expected_cols):
-                    print(f"📁 Loaded cached period data: {len(cached_df):,} periods from {cached_df['clmNum'].nunique():,} claims")
-                    return cached_df
+                # Validate cache metadata
+                if self._validate_cache_metadata(cache_meta, df_txn):
+                    # Load from cache
+                    cached_df = pd.read_parquet(cache_file)
+                    
+                    # Basic validation: check if cache has expected columns
+                    expected_cols = ['clmNum', 'period', 'incremental_paid', 'incremental_expense', 'cumulative_paid', 'cumulative_expense']
+                    if all(col in cached_df.columns for col in expected_cols):
+                        print(f"📁 Loaded cached period data: {len(cached_df):,} periods from {cached_df['clmNum'].nunique():,} claims")
+                        print(f"📊 Cache info: {cache_meta['data_version']} | {cache_meta['created_at']} | {cache_meta['num_transactions']:,} transactions")
+                        return cached_df
+                    else:
+                        print("⚠️ Cached data missing expected columns, recomputing...")
                 else:
-                    print("⚠️ Cached data missing expected columns, recomputing...")
+                    print("⚠️ Cache metadata validation failed (data changed), recomputing...")
             except Exception as e:
                 print(f"⚠️ Error loading cached data: {e}, recomputing...")
         
@@ -387,14 +494,26 @@ class StandardizedClaimsTransformer:
         if all_periods:
             result_df = pd.DataFrame(all_periods)
             
-            # Save to cache
+            # Save to cache with metadata
             try:
                 # Ensure _data directory exists
                 os.makedirs("_data", exist_ok=True)
                 
-                # Save as parquet
+                # Create cache metadata
+                cache_meta = self._create_cache_metadata(df_txn, result_df)
+                
+                # Save data as parquet
                 result_df.to_parquet(cache_file, index=False)
+                
+                # Save metadata
+                with open(cache_meta_file, 'wb') as f:
+                    pickle.dump(cache_meta, f)
+                
                 print(f"💾 Cached period data: {len(result_df):,} periods from {result_df['clmNum'].nunique():,} claims")
+                print(f"📊 Cache saved: {cache_meta['data_version']} | {cache_meta['num_transactions']:,} transactions")
+                
+                # Clean up old cache files
+                self._cleanup_old_cache_files(data_hash)
                 
             except Exception as e:
                 print(f"⚠️ Could not save cache: {e}")
