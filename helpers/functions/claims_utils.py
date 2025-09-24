@@ -131,25 +131,21 @@ def calculate_claim_features(df_open_txn, use_cache=True, force_recalculate=Fals
 
     # Try to load from cache first
     if use_cache and not force_recalculate and os.path.exists(cache_path):
-        try:
-            print(f"Loading cached claim features from: {cache_path}")
-            cached_results = pd.read_parquet(cache_path)
+        print(f"Loading cached claim features from: {cache_path}")
+        cached_results = pd.read_parquet(cache_path)
 
-            # Recreate summary and display dataframes
-            summary_cols = ['num_transactions', 'days_since_first_txn', 'num_expense_txns', 'num_paid_txns',
-                           'current_reserve', 'current_incurred', 'current_paid', 'current_expense']
-            summary_stats = cached_results.groupby(['clmCause', 'clmStatus'])[summary_cols].describe()
+        # Recreate summary and display dataframes
+        summary_cols = ['num_transactions', 'days_since_first_txn', 'num_expense_txns', 'num_paid_txns',
+                       'current_reserve', 'current_incurred', 'current_paid', 'current_expense']
+        summary_stats = cached_results.groupby(['clmCause', 'clmStatus'])[summary_cols].describe()
 
-            display_cols = ['clmCause', 'clmNum', 'num_transactions', 'days_since_first_txn', 'num_expense_txns',
-                           'num_paid_txns', 'current_reserve', 'current_incurred', 'current_paid', 'current_expense', 'current_cashflow']
-            display_df = cached_results[display_cols].copy()
-            display_df.columns = ['Claim Clause', 'Claim Number', 'Transactions', 'Days Since First Txn', 'Expense Txns',
-                                 'Paid Txns', 'Current Reserve', 'Current Incurred', 'Current Paid', 'Current Expense', 'Current Cashflow']
+        display_cols = ['clmCause', 'clmNum', 'num_transactions', 'days_since_first_txn', 'num_expense_txns',
+                       'num_paid_txns', 'current_reserve', 'current_incurred', 'current_paid', 'current_expense', 'current_cashflow']
+        display_df = cached_results[display_cols].copy()
+        display_df.columns = ['Claim Clause', 'Claim Number', 'Transactions', 'Days Since First Txn', 'Expense Txns',
+                             'Paid Txns', 'Current Reserve', 'Current Incurred', 'Current Paid', 'Current Expense', 'Current Cashflow']
 
-            return cached_results, summary_stats, display_df
-
-        except Exception as e:
-            print(f"Error loading cache, recalculating: {e}")
+        return cached_results, summary_stats, display_df
 
     # Calculate features using vectorized approach
     print("Calculating claim features using vectorized operations...")
@@ -157,11 +153,8 @@ def calculate_claim_features(df_open_txn, use_cache=True, force_recalculate=Fals
 
     # Save to cache
     if use_cache and len(features_df) > 0:
-        try:
-            features_df.to_parquet(cache_path)
-            print(f"Cached claim features to: {cache_path}")
-        except Exception as e:
-            print(f"Warning: Could not save cache: {e}")
+        features_df.to_parquet(cache_path)
+        print(f"Cached claim features to: {cache_path}")
 
     return features_df, summary_stats, display_df   
 

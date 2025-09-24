@@ -38,13 +38,9 @@ class CacheManager:
         cache_file = self.get_cache_path(extraction_date)
         
         if os.path.exists(cache_file):
-            try:
-                cached_df = pd.read_parquet(cache_file)
-                print(f"📁 Loaded cached period data: {len(cached_df):,} periods from {cached_df['clmNum'].nunique():,} claims")
-                return cached_df
-            except Exception as e:
-                print(f"⚠️ Error loading cached period data: {e}")
-                return None
+            cached_df = pd.read_parquet(cache_file)
+            print(f"📁 Loaded cached period data: {len(cached_df):,} periods from {cached_df['clmNum'].nunique():,} claims")
+            return cached_df
         else:
             return None
     
@@ -52,13 +48,9 @@ class CacheManager:
         """Save periodized data to cache"""
         cache_file = self.get_cache_path(extraction_date)
         
-        try:
-            periods_df.to_parquet(cache_file, index=False)
-            print(f"💾 Cached period data: {len(periods_df):,} periods from {periods_df['clmNum'].nunique():,} claims")
-            return True
-        except Exception as e:
-            print(f"⚠️ Could not save cache: {e}")
-            return False
+        periods_df.to_parquet(cache_file, index=False)
+        print(f"💾 Cached period data: {len(periods_df):,} periods from {periods_df['clmNum'].nunique():,} claims")
+        return True
 
 
 class DataLoader:
@@ -89,19 +81,15 @@ class DataLoader:
         for folder in date_folders:
             date_name = os.path.basename(folder.rstrip(os.path.sep))
             # Validate date format (YYYY-MM-DD)
-            try:
-                datetime.strptime(date_name, '%Y-%m-%d')
-                # Check if claims file exists
-                claims_file = os.path.join(folder, "clm_with_amt.csv")
-                if os.path.exists(claims_file):
-                    extraction_dates.append({
-                        'extraction_date': date_name,
-                        'claims_file': claims_file,
-                        'folder_path': folder
-                    })
-            except ValueError:
-                # Skip folders that don't match date format
-                continue
+            datetime.strptime(date_name, '%Y-%m-%d')
+            # Check if claims file exists
+            claims_file = os.path.join(folder, "clm_with_amt.csv")
+            if os.path.exists(claims_file):
+                extraction_dates.append({
+                    'extraction_date': date_name,
+                    'claims_file': claims_file,
+                    'folder_path': folder
+                })
         
         # Sort by date (newest first)
         extraction_dates.sort(key=lambda x: x['extraction_date'], reverse=True)
@@ -132,22 +120,15 @@ class DataLoader:
             parquet_file = claims_file.replace('.csv', '.parquet')
             
             if os.path.exists(parquet_file):
-                try:
-                    df = pd.read_parquet(parquet_file)
-                    print(f"📁 Loaded cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
-                    return df
-                except Exception as e:
-                    print(f"⚠️ Error loading cached claims data: {e}")
+                df = pd.read_parquet(parquet_file)
+                print(f"📁 Loaded cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
+                return df
             
             # Load from CSV and save as parquet
-            try:
-                df = pd.read_csv(claims_file)
-                df.to_parquet(parquet_file)
-                print(f"📁 Loaded and cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
-                return df
-            except Exception as e:
-                print(f"⚠️ Error loading claims data from {claims_file}: {e}")
-                return None
+            df = pd.read_csv(claims_file)
+            df.to_parquet(parquet_file)
+            print(f"📁 Loaded and cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
+            return df
         else:
             print(f"⚠️ Claims file not found: {claims_file}")
             return None
@@ -177,22 +158,15 @@ class DataLoader:
             parquet_file = notes_file.replace('.csv', '.parquet')
             
             if os.path.exists(parquet_file):
-                try:
-                    df = pd.read_parquet(parquet_file)
-                    print(f"📁 Loaded cached notes data: {len(df):,} notes")
-                    return df
-                except Exception as e:
-                    print(f"⚠️ Error loading cached notes data: {e}")
+                df = pd.read_parquet(parquet_file)
+                print(f"📁 Loaded cached notes data: {len(df):,} notes")
+                return df
             
             # Load from CSV and save as parquet
-            try:
-                df = pd.read_csv(notes_file)
-                df.to_parquet(parquet_file)
-                print(f"📁 Loaded and cached notes data: {len(df):,} notes")
-                return df
-            except Exception as e:
-                print(f"⚠️ Error loading notes data from {notes_file}: {e}")
-                return None
+            df = pd.read_csv(notes_file)
+            df.to_parquet(parquet_file)
+            print(f"📁 Loaded and cached notes data: {len(df):,} notes")
+            return df
         else:
             print(f"ℹ️ Notes file not found: {notes_file}")
             return None
