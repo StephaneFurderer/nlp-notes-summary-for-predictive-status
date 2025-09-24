@@ -24,26 +24,33 @@ def initialize_sidebar():
 def advanced_sidebar(df_raw_txn):
     # claim number selection
     # cause selection
-    st.markdown("## Cause Selection")
-    cause = st.selectbox("Cause", df_raw_txn['clmCause'].dropna().unique(), help="Select the claim cause to analyze")
+    with st.sidebar:
+        st.markdown("## Cause Selection")
+        causes = ['ALL'] + list(df_raw_txn['clmCause'].dropna().unique())
+        cause = st.selectbox("Cause", causes, help="Select the claim cause to analyze")
 
-    # status selection
-    st.markdown("## Status Selection")
-    status = st.selectbox("Status", df_raw_txn['clmStatus'].dropna().unique(), help="Select the claim status to analyze")
+        # status selection
+        st.markdown("## Status Selection")
+        statuses = ['ALL'] + list(df_raw_txn['clmStatus'].dropna().unique())
+        status = st.selectbox("Status", statuses, help="Select the claim status to analyze")
 
+        st.markdown("## Claim Selection")
+        df_transaction_filtered = df_raw_txn.copy()
 
-    st.markdown("## Claim Selection")
-    df_transaction_filtered = df_raw_txn.copy()
-    # filter the data
-    if cause == 'ALL':
-        cause = None
-    else:
-        cause = _filter_by_(df_transaction_filtered,'clmCause',cause)
-    if status == 'ALL':
-        status = None
-    else:
-        status = _filter_by_(df_transaction_filtered,'clmStatus',status)
-    
-    claim_number = st.text_input("Claim Number", df_transaction_filtered['clmNum'].dropna().unique(), help="Enter a claim number to filter data, leave blank to show all")
+        # filter the data
+        if cause != 'ALL':
+            df_transaction_filtered = _filter_by_(df_transaction_filtered, 'clmCause', cause)
+        if status != 'ALL':
+            df_transaction_filtered = _filter_by_(df_transaction_filtered, 'clmStatus', status)
+
+        claim_number = st.text_input(
+            "Claim Number",
+            value="",
+            help="Enter a claim number to filter data, leave blank to show all"
+        )
+
+        # If a claim number is entered, filter further
+        if claim_number.strip():
+            df_transaction_filtered = _filter_by_(df_transaction_filtered, 'clmNum', claim_number.strip())
 
     return df_transaction_filtered, cause, status, claim_number
