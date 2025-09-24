@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Optional
 from .claims_data_schema import clean_and_convert_dataframe
+from .toPeriods_utils import create_period_column_fast
 from .CONST import BASE_DATA_DIR
 
 logging.basicConfig(level=logging.INFO)
@@ -408,8 +409,8 @@ def transform_claims_raw_data(df_raw_txn,report_date=None):
 #----------------------------------------------------------
 # Main endpoints : load and transform claims data
 #----------------------------------------------------------
-
 LIST_DATAFRAMES = ['df_raw_txn', 'closed_txn', 'open_txn', 'paid_txn', 'df_raw_final', 'closed_final', 'paid_final', 'open_final']
+LIST_DATAFRAMES_PERIODS = ['df_raw_txn_to_periods', 'closed_txn_to_periods', 'open_txn_to_periods', 'paid_txn_to_periods']
 
 def load_claims_data(extraction_date: Optional[str] = None, claims_file: Optional[str] = None) -> Optional[pd.DataFrame]:
     if extraction_date:
@@ -443,14 +444,75 @@ def load_transformed_claims_data(extraction_date=None):
     return dataframes
 
 def read_transformed_claims_data_from_parquet(extraction_date=None):
+    """
+    Reads transformed claims dataframes from parquet files for a given extraction date.
+    If any file is missing, triggers transformation and reloads.
+    Returns a tuple of dataframes in the order of LIST_DATAFRAMES.
+    """
     dfs = []
     for name in LIST_DATAFRAMES:
         path = f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet"
         dfs.append(pd.read_parquet(path) if os.path.exists(path) else None)
-    #if one is none, run the load_transformed_claims_data function
+    # If any file is missing, reload and transform, which returns a tuple
     if any(df is None for df in dfs):
         dfs = load_transformed_claims_data(extraction_date)
+    # Always return a tuple, in the order of LIST_DATAFRAMES
     return tuple(dfs)
+
+def compute_periods_data(dfs, extraction_date, period_func=None):
+    """
+    Computes periods data for RNN model from the provided dfs tuple.
+    Optionally accepts a custom period_func, otherwise expects 'create_period_column_fast' in scope.
+    Saves the resulting periods dataframe to parquet.
+    Returns the periods dataframe.
+    """
+    if period_func is None:
+        from .toPeriods_utils import create_period_column_fast
+        period_func = create_period_column_fast
+
+    # dfs is a tuple in the order of LIST_DATAFRAMES
+    # Map names to dfs for easy access
+    if isinstance(dfs, tuple):
+        dfs_dict = dict(zip(LIST_DATAFRAMES, dfs))
+    elif isinstance(dfs, dict):
+        dfs_dict = dfs
+    else:
+        raise ValueError("dfs must be a tuple or dict")
+
+    period_dfs = []
+    for key in ['df_raw_txn', 'closed_txn', 'open_txn', 'paid_txn']:
+        df = dfs_dict.get(key)
+        if df is not None and not df.empty:
+            periods = period_func(df)
+            periods['source'] = key
+            period_dfs.append(periods)
+            save_periods_data(extraction_date, periods, name=key+'_to_periods')
+    if not period_dfs:
+        raise ValueError("No valid dataframes found for period computation.")
+    
+    return tuple(period_dfs)
+
+def save_periods_data(extraction_date, df, name='periods'):
+    """
+    Saves the periods dataframe to a parquet file for the given extraction date.
+    """
+    os.makedirs(f"{BASE_DATA_DIR}/{extraction_date}", exist_ok=True)
+    df.to_parquet(f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet")
+
+
+def read_periods_data(extraction_date):
+        """
+        Reads all periods dataframes from parquet files for a given extraction date.
+        If any file is missing, triggers computation and reloads.
+        Returns a tuple of dataframes in the order of LIST_DATAFRAMES_PERIODS.
+        """
+        dfs_to_periods = []
+        for name in LIST_DATAFRAMES_PERIODS:
+            path = f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet"
+            dfs_to_periods.append(pd.read_parquet(path) if os.path.exists(path) else None)
+        if any(df is None for df in dfs_to_periods):
+            dfs_to_periods = compute_periods_data(read_transformed_claims_data_from_parquet(extraction_date), extraction_date)
+        return tuple(dfs_to_periods)
 
 
 if __name__ == "__main__":
