@@ -21,6 +21,10 @@ def initialize_sidebar():
         )
     return extraction_date
 
+def test_if_claim_number_is_valid(claim_number):
+    if claim_number is not None and claim_number.strip() != "":
+        return True
+    return False
 
 def claim_number_filter(df_transaction_filtered, claim_number):
     if claim_number is not None and claim_number.strip() != "":
@@ -58,6 +62,5 @@ def advanced_sidebar(df_raw_txn,df_raw_final):
         )
         df_raw_final_filtered = claim_number_filter(df_raw_final_filtered, claim_number)
         df_transaction_filtered = claim_number_filter(df_transaction_filtered, claim_number)
-
         
     return df_transaction_filtered, df_raw_final_filtered, cause, status, claim_number
