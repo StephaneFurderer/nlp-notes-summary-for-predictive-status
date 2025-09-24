@@ -20,7 +20,11 @@ def initialize_sidebar():
         available_dates,
         help="Select the data extraction date to analyze"
         )
-        st.button("Delete Periods Data", on_click=delete_periods_data, args=(extraction_date,))
+        event = st.button("Delete Periods Data", on_click=delete_periods_data, args=(extraction_date,))
+        if event:
+            # force to refresh the memory and empty the cache
+            st.cache_data.clear()
+            st.cache_resource.clear()
     return extraction_date
 
 def test_if_claim_number_is_valid(claim_number):

@@ -35,7 +35,7 @@ with st.expander("Data Preview", expanded=False):
 # Step 2: Configure LSTM sequence preparation
 st.header("Step 2: Configure LSTM Sequences")
 
-
+claim_cause_col = 'clmCause'
 claim_id_col = 'clmNum'
 period_col = 'period'
 payment_col = 'paid'
@@ -55,7 +55,7 @@ with st.sidebar:
 # Preview selected data
 with st.expander("Selected Columns Preview", expanded=False):
     st.subheader("Selected Columns Preview")
-    preview_cols = [claim_id_col, status_col, period_col, payment_col,expense_col]
+    preview_cols = [claim_cause_col,claim_id_col, period_col, payment_col,expense_col]
     st.dataframe(df_periods[preview_cols].head(10))
 
 # Step 3: Test sequence preparation
