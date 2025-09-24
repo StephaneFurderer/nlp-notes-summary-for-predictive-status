@@ -11,6 +11,7 @@ import glob
 import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from .claims_data_schema import clean_and_convert_dataframe, get_claims_data_types
 
 
 class CacheManager:
@@ -130,6 +131,10 @@ class DataLoader:
             
             # Load from CSV and save as parquet
             df = pd.read_csv(claims_file)
+            
+            # Clean and convert data according to schema
+            df = clean_and_convert_dataframe(df)
+            
             df.to_parquet(parquet_file)
             print(f"📁 Loaded and cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
             return df
@@ -168,6 +173,10 @@ class DataLoader:
             
             # Load from CSV and save as parquet
             df = pd.read_csv(notes_file)
+            
+            # Clean and convert data according to schema
+            df = clean_and_convert_dataframe(df)
+            
             df.to_parquet(parquet_file)
             print(f"📁 Loaded and cached notes data: {len(df):,} notes")
             return df
