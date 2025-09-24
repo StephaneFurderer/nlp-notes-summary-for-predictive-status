@@ -81,15 +81,19 @@ class DataLoader:
         for folder in date_folders:
             date_name = os.path.basename(folder.rstrip(os.path.sep))
             # Validate date format (YYYY-MM-DD)
-            datetime.strptime(date_name, '%Y-%m-%d')
-            # Check if claims file exists
-            claims_file = os.path.join(folder, "clm_with_amt.csv")
-            if os.path.exists(claims_file):
-                extraction_dates.append({
-                    'extraction_date': date_name,
-                    'claims_file': claims_file,
-                    'folder_path': folder
-                })
+            try:
+                datetime.strptime(date_name, '%Y-%m-%d')
+                # Check if claims file exists
+                claims_file = os.path.join(folder, "clm_with_amt.csv")
+                if os.path.exists(claims_file):
+                    extraction_dates.append({
+                        'extraction_date': date_name,
+                        'claims_file': claims_file,
+                        'folder_path': folder
+                    })
+            except ValueError:
+                # Skip folders that don't match date format (like 'cache')
+                continue
         
         # Sort by date (newest first)
         extraction_dates.sort(key=lambda x: x['extraction_date'], reverse=True)
