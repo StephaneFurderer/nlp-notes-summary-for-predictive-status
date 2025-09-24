@@ -18,7 +18,7 @@ st.title("Claims Analysis")
 extraction_date = initialize_sidebar()
 df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final  = read_transformed_claims_data_from_parquet(extraction_date)
 df_raw_txn_to_periods, closed_txn_to_periods, open_txn_to_periods, paid_txn_to_periods = read_periods_data(extraction_date)
-df_raw_txn_filtered, df_raw_final_filtered, df_raw_txn_to_periods_filtered, cause, status, claim_number = advanced_sidebar([df_raw_txn, df_raw_final, df_raw_txn_to_periods])
+[df_raw_txn_filtered, df_raw_final_filtered, df_raw_txn_to_periods_filtered], cause, status, claim_number = advanced_sidebar([df_raw_txn, df_raw_final, df_raw_txn_to_periods])
 #df_periods_filtered = create_period_column_fast(df_raw_txn_filtered)
 
 
