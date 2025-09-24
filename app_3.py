@@ -43,8 +43,12 @@ with st.expander("Filtered data", expanded=False):
 if test_if_claim_number_is_valid(claim_number):
     with st.expander("Lifetime Development", expanded=False):
         # lifetime per transaction date and period date
-        st.subheader("Lifetime Development")
+        st.subheader("Lifetime Development per Transaction Date")
         fig = plot_single_claim_lifetime(df_raw_txn_filtered, x_axis='datetxn', selected_claim=claim_number,y_axis=['reserve_cumsum', 'paid_cumsum', 'incurred_cumsum', 'expense_cumsum'])
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Lifetime Development per Period")
+        fig = plot_single_claim_lifetime(df_periods_filtered, x_axis='period', selected_claim=claim_number,y_axis=['reserve_cumsum', 'paid_cumsum', 'incurred_cumsum', 'expense_cumsum'])
         st.plotly_chart(fig, use_container_width=True)
 
 
