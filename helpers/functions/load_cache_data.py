@@ -53,7 +53,7 @@ def get_available_data_versions() -> List[Dict[str, Any]]:
     extraction_dates.sort(key=lambda x: x['extraction_date'], reverse=True)
     return extraction_dates
 
-def load_claims_data(self, extraction_date: Optional[str] = None, 
+def load_claims_data(extraction_date: Optional[str] = None, 
                         claims_file: Optional[str] = None) -> Optional[pd.DataFrame]:
     """
     Load claims data from structured folders with parquet caching
