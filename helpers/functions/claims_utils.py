@@ -2,18 +2,15 @@ import pandas as pd
 import numpy as np
 import os
 import hashlib
+from .load_cache_data import load_claims_data
+import json
+import logging
+from typing import Optional
+from .claims_data_schema import clean_and_convert_dataframe
+from .CONST import BASE_DATA_DIR
 
-
-
-# def _generate_data_hash(df):
-#     """Generate a hash of the dataframe for caching purposes"""
-#     return hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
-
-# def _get_cache_path(data_hash):
-#     """Get the cache file path for given data hash"""
-#     cache_dir = os.path.join('.', '_data', 'cache')
-#     os.makedirs(cache_dir, exist_ok=True)
-#     return os.path.join(cache_dir, f'claim_features_{data_hash}.parquet')
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 #----------------------------------------------------------
 # Deprecated: claim features for predictive models
@@ -163,6 +160,12 @@ def calculate_claim_features(df_open_txn, use_cache=True, force_recalculate=Fals
 
 def _filter_by_(df,col,value):
     return df[df[col].str.contains(value.strip(), case=False, na=False)]
+
+
+
+
+
+
 
 # ----------------------------------------------------------
 # Useful functions: claims transformation from raw to transaction and final data model
@@ -448,3 +451,61 @@ def transform_claims_raw_data(df_raw_txn,report_date=None):
     
     return (df_raw_txn, closed_txn, open_txn, paid_txn, 
             df_raw_final, closed_final, paid_final, open_final)
+
+
+#----------------------------------------------------------
+# Main endpoints : load and transform claims data
+#----------------------------------------------------------
+
+LIST_DATAFRAMES = ['df_raw_txn', 'closed_txn', 'open_txn', 'paid_txn', 'df_raw_final', 'closed_final', 'paid_final', 'open_final']
+
+def load_claims_data(extraction_date: Optional[str] = None, claims_file: Optional[str] = None) -> Optional[pd.DataFrame]:
+    if extraction_date:
+        claims_file = os.path.join(BASE_DATA_DIR, extraction_date, "clm_with_amt.csv")
+        if not os.path.exists(claims_file):
+            logger.info(f"No claims file found for extraction date {extraction_date}")
+            return None
+    if claims_file and os.path.exists(claims_file):
+        parquet_file = claims_file.replace('.csv', '.parquet')
+        if os.path.exists(parquet_file):
+            df = pd.read_parquet(parquet_file)
+        else:
+            df = clean_and_convert_dataframe(pd.read_csv(claims_file))
+            df.to_parquet(parquet_file)
+        logger.info(f"Loaded claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
+        return df
+    logger.info(f"Claims file not found: {claims_file}")
+    return None
+
+def save_transformed_claims_data(extraction_date, dataframes):
+    os.makedirs(f"{BASE_DATA_DIR}/{extraction_date}", exist_ok=True)
+    for name, df in zip(LIST_DATAFRAMES, dataframes):
+        df.to_parquet(f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet")
+    with open(f"{BASE_DATA_DIR}/{extraction_date}/parquet_file_paths.json", "w") as f:
+        json.dump({name: f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet" for name in LIST_DATAFRAMES}, f)
+
+def load_transformed_claims_data(extraction_date=None):
+    raw_claim_data = load_claims_data(extraction_date=extraction_date)
+    dataframes = transform_claims_raw_data(raw_claim_data)
+    save_transformed_claims_data(extraction_date, dataframes)
+    return dataframes
+
+def read_transformed_claims_data_from_parquet(extraction_date=None):
+    dfs = []
+    for name in LIST_DATAFRAMES:
+        path = f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet"
+        dfs.append(pd.read_parquet(path) if os.path.exists(path) else None)
+    #if one is none, run the load_transformed_claims_data function
+    if any(df is None for df in dfs):
+        dfs = load_transformed_claims_data(extraction_date)
+    return tuple(dfs)
+
+if __name__ == "__main__":
+    """ 
+    Example usage:
+    python -m helpers.functions.claims_utils
+    to read the transformed claims data from the parquet files if they exist, otherwise it will load the raw claims data and transform it
+    """
+    extraction_date = "2025-09-21"
+    dataframes = read_transformed_claims_data_from_parquet(extraction_date)
+    print(dataframes)

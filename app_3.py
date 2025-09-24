@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
-from helpers.functions.claims_utils import transform_claims_raw_data
-from helpers.functions.load_cache_data import get_available_data_versions,load_claims_data
+from helpers.functions.claims_utils import read_transformed_claims_data_from_parquet
+
 from helpers.functions.standardized_claims_transformer import StandardizedClaimsTransformer
 from helpers.functions.standardized_claims_schema import StandardizationConfig
 
@@ -26,11 +26,12 @@ extraction_date = st.sidebar.selectbox(
     help="Select the data extraction date to analyze"
 )
 
+df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final  = read_transformed_claims_data_from_parquet(extraction_date)
 # Load data using the proper modules
 # import claim data pipeline
-raw_claim_data = load_claims_data(extraction_date=extraction_date)
-transformed_claim_data = transform_claims_raw_data(raw_claim_data)
-df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final = transformed_claim_data
+# raw_claim_data = load_claims_data(extraction_date=extraction_date)
+# transformed_claim_data = transform_claims_raw_data(raw_claim_data)
+# df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final = transformed_claim_data
 
 # # Check for cached periodized data
 # periods_df = period_cache_manager.load_cache(df_raw_txn, extraction_date)
