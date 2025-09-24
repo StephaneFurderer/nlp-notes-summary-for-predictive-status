@@ -157,8 +157,6 @@ def calculate_claim_features(df_open_txn, use_cache=True, force_recalculate=Fals
 
     return features_df, summary_stats, display_df   
 
-def _filter_by_(df,col,value):
-    return df[df[col].str.contains(value.strip(), case=False, na=False)]
 
 
 

@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+from helpers.UI.sidebar import initialize_sidebar, advanced_sidebar
 from helpers.functions.load_cache_data import get_available_data_versions
 from helpers.functions.claims_utils import read_transformed_claims_data_from_parquet
 
@@ -9,25 +10,15 @@ from helpers.functions.standardized_claims_schema import StandardizationConfig
 st.set_page_config(page_title="Claims Analysis", layout="wide")
 st.title("Claims Analysis")
 
-# Initialize modules
-# data_loader = DataLoader()
-# period_cache_manager = PeriodCacheManager()
-# transformer = StandardizedClaimsTransformer()
 
-
-# Get available dates
-available_versions = get_available_data_versions()
-available_dates = [v['extraction_date'] for v in available_versions]
 
 # Sidebar controls
-st.sidebar.markdown("## Data Selection")
-extraction_date = st.sidebar.selectbox(
-    "Extraction Date",
-    available_dates,
-    help="Select the data extraction date to analyze"
-)
-
+extraction_date = initialize_sidebar()
 df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final  = read_transformed_claims_data_from_parquet(extraction_date)
+df_raw_txn, cause, status, claim_number = advanced_sidebar(df_raw_txn)
+
+
+
 # Load data using the proper modules
 # import claim data pipeline
 # raw_claim_data = load_claims_data(extraction_date=extraction_date)
