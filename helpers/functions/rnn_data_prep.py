@@ -25,6 +25,7 @@ def prepare_lstm_sequences(df: pd.DataFrame,
                           claim_id_col: str = 'claim_id',
                           period_col: str = 'period',
                           payment_col: str = 'payment_amount',
+                          expense_col: str = 'expense_amount',
                           status_col: str = 'claim_status',
                           split_col: str = 'dataset_split',
                           max_periods: int = 24,
@@ -43,6 +44,7 @@ def prepare_lstm_sequences(df: pd.DataFrame,
         claim_id_col: Column name for unique claim identifier
         period_col: Column name for development period
         payment_col: Column name for payment amounts
+        expense_col: Column name for expense amounts
         status_col: Column name for claim status
         split_col: Column name indicating train/val/test split
         max_periods: Maximum sequence length (n in paper)
@@ -108,19 +110,8 @@ def extract_static_features(first_period_data: pd.Series) -> np.ndarray:
     """
     static_cols = []
 
-    # Add numerical features
-    if 'claimant_age' in first_period_data.index:
-        static_cols.append(first_period_data['claimant_age'])
-    if 'policy_limit' in first_period_data.index:
-        static_cols.append(first_period_data['policy_limit'])
-    if 'deductible' in first_period_data.index:
-        static_cols.append(first_period_data['deductible'])
-
-    # Add categorical features (will need embedding later)
-    if 'line_of_business' in first_period_data.index:
-        static_cols.append(first_period_data['line_of_business'])
-    if 'state' in first_period_data.index:
-        static_cols.append(first_period_data['state'])
+    static_cols.append(first_period_data['clmCause'])
+    
 
     return np.array(static_cols) if static_cols else np.array([0])
 

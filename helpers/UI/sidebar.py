@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from helpers.functions.load_cache_data import get_available_data_versions
+from helpers.functions.claims_utils import delete_periods_data
 from typing import List
 
 available_versions = get_available_data_versions()
@@ -19,6 +20,7 @@ def initialize_sidebar():
         available_dates,
         help="Select the data extraction date to analyze"
         )
+        st.button("Delete Periods Data", on_click=delete_periods_data, args=(extraction_date,))
     return extraction_date
 
 def test_if_claim_number_is_valid(claim_number):

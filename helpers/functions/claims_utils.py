@@ -484,6 +484,8 @@ def compute_periods_data(dfs, extraction_date, period_func=None):
         df = dfs_dict.get(key)
         if df is not None and not df.empty:
             periods = period_func(df)
+            # retrive the features from the original dataframe to be included in the LSTM model
+            periods = periods.merge(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
             periods['source'] = key
             period_dfs.append(periods)
             save_periods_data(extraction_date, periods, name=key+'_to_periods')
@@ -499,7 +501,13 @@ def save_periods_data(extraction_date, df, name='periods'):
     os.makedirs(f"{BASE_DATA_DIR}/{extraction_date}", exist_ok=True)
     df.to_parquet(f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet")
 
-
+def delete_periods_data(extraction_date):
+    """
+    Deletes the periods dataframe from the parquet file for the given extraction date.
+    """
+    for name in LIST_DATAFRAMES_PERIODS:
+        os.remove(f"{BASE_DATA_DIR}/{extraction_date}/{name}.parquet")
+    
 def read_periods_data(extraction_date):
         """
         Reads all periods dataframes from parquet files for a given extraction date.

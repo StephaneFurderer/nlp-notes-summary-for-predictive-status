@@ -17,6 +17,8 @@ from helpers.functions.claims_utils import (
 def _load_shared_data(extraction_date: str) -> Dict[str, Any]:
     df_raw_txn, _, _, _, df_raw_final, _, _, _ = read_transformed_claims_data_from_parquet(extraction_date)
     df_raw_txn_to_periods, _, _, _ = read_periods_data(extraction_date)
+
+    # merge the 
     return {
         "df_raw_txn": df_raw_txn,
         "df_raw_final": df_raw_final,
