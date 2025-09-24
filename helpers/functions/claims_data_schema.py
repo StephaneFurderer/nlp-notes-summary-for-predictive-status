@@ -3,6 +3,7 @@ Data schema definitions for claims data processing
 """
 
 import pandas as pd
+import numpy as np
 from typing import Dict, Any, Optional
 
 # Define the expected data types for claims data columns
@@ -58,7 +59,7 @@ DATE_PARSE_FORMAT = '%H:%M.%S'
 
 def clean_and_convert_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Clean and convert DataFrame according to the claims data schema
+    Clean and convert DataFrame according to the claims data schema - raw data
     """
     df_clean = df.copy()
     
@@ -91,6 +92,13 @@ def clean_and_convert_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         df_clean['PostalCode'] = df_clean['PostalCode'].astype(str)
         df_clean['PostalCode'] = df_clean['PostalCode'].replace(['nan', 'None'], None)
     
+
+    # Process the data
+    df_clean['booknum'] = np.where(df_clean['booknum'].isnull(), "NO_BOOKING_NUM", df_clean['booknum'])
+    df_clean['dateCompleted'] = pd.to_datetime(df_clean['dateCompleted'], errors='coerce')
+    df_clean['dateReopened'] = pd.to_datetime(df_clean['dateReopened'], errors='coerce')
+    df_clean['datetxn'] = pd.to_datetime(df_clean['datetxn'], errors='coerce')
+
     return df_clean
 
 def get_claims_data_types() -> Dict[str, str]:

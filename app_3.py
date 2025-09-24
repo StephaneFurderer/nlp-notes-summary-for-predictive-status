@@ -27,6 +27,7 @@ extraction_date = st.sidebar.selectbox(
 )
 
 # Load data using the proper modules
+# import claim data pipeline
 raw_claim_data = load_claims_data(extraction_date=extraction_date)
 transformed_claim_data = transform_claims_raw_data(raw_claim_data)
 df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final = transformed_claim_data

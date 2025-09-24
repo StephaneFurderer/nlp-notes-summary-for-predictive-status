@@ -5,16 +5,19 @@ import hashlib
 
 
 
-def _generate_data_hash(df):
-    """Generate a hash of the dataframe for caching purposes"""
-    return hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
+# def _generate_data_hash(df):
+#     """Generate a hash of the dataframe for caching purposes"""
+#     return hashlib.md5(pd.util.hash_pandas_object(df, index=True).values).hexdigest()
 
-def _get_cache_path(data_hash):
-    """Get the cache file path for given data hash"""
-    cache_dir = os.path.join('.', '_data', 'cache')
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'claim_features_{data_hash}.parquet')
+# def _get_cache_path(data_hash):
+#     """Get the cache file path for given data hash"""
+#     cache_dir = os.path.join('.', '_data', 'cache')
+#     os.makedirs(cache_dir, exist_ok=True)
+#     return os.path.join(cache_dir, f'claim_features_{data_hash}.parquet')
 
+#----------------------------------------------------------
+# Deprecated: claim features for predictive models
+#----------------------------------------------------------
 def calculate_claim_features_vectorized(df_txn):
     """Vectorized calculation of claim features using pandas groupby operations"""
     if len(df_txn) == 0:
@@ -160,6 +163,10 @@ def calculate_claim_features(df_open_txn, use_cache=True, force_recalculate=Fals
 
 def _filter_by_(df,col,value):
     return df[df[col].str.contains(value.strip(), case=False, na=False)]
+
+# ----------------------------------------------------------
+# Useful functions: claims transformation from raw to transaction and final data model
+# ----------------------------------------------------------
 # Identify the main amounts: reserve, paid, expense
 def calculate_claim_amounts(df):
     """ Calculate the main amounts: reserve, paid, expense """
@@ -264,51 +271,56 @@ def aggregate_by_booking_policy_claim(df,transaction_view:bool = False):
     
     return grouped
 
-def import_data(extraction_date=None):
-    """
-    Load and process claims data using DataLoader
+# def import_data(extraction_date=None):
+#     """
+#     Load and process claims data using DataLoader
 
-    Args:
-        extraction_date: Date string in YYYY-MM-DD format (e.g., '2025-09-21')
+#     Args:
+#         extraction_date: Date string in YYYY-MM-DD format (e.g., '2025-09-21')
 
-    Returns:
-        Processed DataFrame with claim features
-    """
-    from .load_cache_data import DataLoader
+#     Returns:
+#         Processed DataFrame with claim features
+#     """
+#     from .load_cache_data import DataLoader
 
-    # Initialize DataLoader
-    data_loader = DataLoader()
+#     # Initialize DataLoader
+#     data_loader = DataLoader()
 
-    # If extraction_date is provided, use structured data loading
-    if extraction_date:
-        df = data_loader.load_claims_data(extraction_date=extraction_date)
-        if df is None:
-            raise FileNotFoundError(f"No claims data found for extraction date {extraction_date}")
-    else:
-        # Fallback: try to find the most recent extraction date
-        available_versions = data_loader.get_available_data_versions()
-        if not available_versions:
-            raise FileNotFoundError("No organized claims data found. Please specify extraction_date.")
+#     # If extraction_date is provided, use structured data loading
+#     if extraction_date:
+#         df = data_loader.load_claims_data(extraction_date=extraction_date)
+#         if df is None:
+#             raise FileNotFoundError(f"No claims data found for extraction date {extraction_date}")
+#     else:
+#         # Fallback: try to find the most recent extraction date
+#         available_versions = data_loader.get_available_data_versions()
+#         if not available_versions:
+#             raise FileNotFoundError("No organized claims data found. Please specify extraction_date.")
 
-        # Use the most recent extraction date
-        latest_date = available_versions[0]['extraction_date']
-        print(f"Using latest available extraction date: {latest_date}")
-        df = data_loader.load_claims_data(extraction_date=latest_date)
-        if df is None:
-            raise FileNotFoundError(f"Failed to load claims data for {latest_date}")
+#         # Use the most recent extraction date
+#         latest_date = available_versions[0]['extraction_date']
+#         print(f"Using latest available extraction date: {latest_date}")
+#         df = data_loader.load_claims_data(extraction_date=latest_date)
+#         if df is None:
+#             raise FileNotFoundError(f"Failed to load claims data for {latest_date}")
 
-    # Process the data
-    df['booknum'] = np.where(df['booknum'].isnull(), "NO_BOOKING_NUM", df['booknum'])
-    df['dateCompleted'] = pd.to_datetime(df['dateCompleted'], errors='coerce')
-    df['dateReopened'] = pd.to_datetime(df['dateReopened'], errors='coerce')
-    df['datetxn'] = pd.to_datetime(df['datetxn'], errors='coerce')
+#     # Process the data
+#     df['booknum'] = np.where(df['booknum'].isnull(), "NO_BOOKING_NUM", df['booknum'])
+#     df['dateCompleted'] = pd.to_datetime(df['dateCompleted'], errors='coerce')
+#     df['dateReopened'] = pd.to_datetime(df['dateReopened'], errors='coerce')
+#     df['datetxn'] = pd.to_datetime(df['datetxn'], errors='coerce')
 
-    # Aggregate and process
+#     # Aggregate and process
+#     df_with_open_flag = aggregate_by_booking_policy_claim(df, transaction_view=True).sort_values('incurred', ascending=False)
+#     df_with_open_flag = df_with_open_flag.join(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
+
+#     return df_with_open_flag
+
+
+def _aggregate_by_booking_policy_claim(df):
     df_with_open_flag = aggregate_by_booking_policy_claim(df, transaction_view=True).sort_values('incurred', ascending=False)
     df_with_open_flag = df_with_open_flag.join(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
-
     return df_with_open_flag
-
 
 def transform_claims_raw_data(df_raw_txn,report_date=None):
     """
@@ -343,7 +355,7 @@ def transform_claims_raw_data(df_raw_txn,report_date=None):
         return df.sort_values(by=sort_cols, ascending=ascending).copy()
     
     def filter_data(df, report_date):
-        """Helper function to filter the data based on the report date"""
+        """Helper function to filter the data based on the report date and change the clmStatus"""
         if report_date is not None:
             # Create a copy to avoid modifying the original dataframe
             df_filtered = df.copy()
@@ -403,6 +415,10 @@ def transform_claims_raw_data(df_raw_txn,report_date=None):
             return df_filtered
         
         return df
+
+
+    # aggregate the data
+    df_raw_txn = _aggregate_by_booking_policy_claim(df_raw_txn)
 
     # For real data, use clmStatus
     closed_txn = df_raw_txn[df_raw_txn['policy_has_open_claims'] == False]
