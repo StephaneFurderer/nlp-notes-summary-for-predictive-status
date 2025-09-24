@@ -21,7 +21,13 @@ def initialize_sidebar():
         )
     return extraction_date
 
-def advanced_sidebar(df_raw_txn):
+
+def claim_number_filter(df_transaction_filtered, claim_number):
+    if claim_number is not None and claim_number.strip() != "":
+        df_transaction_filtered = df_transaction_filtered[df_transaction_filtered['clmNum'].astype(str).str.contains(claim_number.strip(), case=False, na=False)]
+    return df_transaction_filtered
+
+def advanced_sidebar(df_raw_txn,df_raw_final):
     # claim number selection
     # cause selection
     with st.sidebar:
@@ -36,21 +42,22 @@ def advanced_sidebar(df_raw_txn):
 
         st.markdown("## Claim Selection")
         df_transaction_filtered = df_raw_txn.copy()
-
+        df_raw_final_filtered = df_raw_final.copy()
         # filter the data
         if cause != 'ALL':
             df_transaction_filtered = _filter_by_(df_transaction_filtered, 'clmCause', cause)
+            df_raw_final_filtered = _filter_by_(df_raw_final_filtered, 'clmCause', cause)
         if status != 'ALL':
             df_transaction_filtered = _filter_by_(df_transaction_filtered, 'clmStatus', status)
+            df_raw_final_filtered = _filter_by_(df_raw_final_filtered, 'clmStatus', status)
 
         claim_number = st.text_input(
             "Claim Number",
             value="",
             help="Enter a claim number to filter data, leave blank to show all"
         )
+        df_raw_final_filtered = claim_number_filter(df_raw_final_filtered, claim_number)
+        df_transaction_filtered = claim_number_filter(df_transaction_filtered, claim_number)
 
-        # If a claim number is entered, filter further
-        if claim_number.strip():
-            df_transaction_filtered = _filter_by_(df_transaction_filtered, 'clmNum', claim_number.strip())
-
-    return df_transaction_filtered, cause, status, claim_number
+        
+    return df_transaction_filtered, df_raw_final_filtered, cause, status, claim_number

@@ -15,8 +15,7 @@ st.title("Claims Analysis")
 # Sidebar controls
 extraction_date = initialize_sidebar()
 df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final  = read_transformed_claims_data_from_parquet(extraction_date)
-df_raw_txn, cause, status, claim_number = advanced_sidebar(df_raw_txn)
-
+df_raw_txn_filtered, df_raw_final_filtered, cause, status, claim_number = advanced_sidebar(df_raw_txn, df_raw_final)
 
 
 # Load data using the proper modules
@@ -44,14 +43,22 @@ df_raw_txn, cause, status, claim_number = advanced_sidebar(df_raw_txn)
 # else:
 #     st.sidebar.success("Loaded periodized data from cache")
 
-# Data tables
-with st.expander("All Transactions", expanded=False):
-    st.subheader("All Transactions Data")
+# All data
+with st.expander("All data", expanded=False):
+    st.subheader("Transactions Data")
     st.dataframe(df_raw_txn, use_container_width=True)
 
-with st.expander("All Final Claims", expanded=False):
-    st.subheader("Final Status for All Claims")
+    st.subheader("Final Status")
     st.dataframe(df_raw_final, use_container_width=True)
+
+# filtered data
+with st.expander("Filtered data", expanded=False):
+    st.subheader("All Transactions Data")
+    st.dataframe(df_raw_txn_filtered, use_container_width=True)
+
+    st.subheader("Final Status for All Claims")
+    st.dataframe(df_raw_final_filtered, use_container_width=True)
+
 
 # with st.expander("All Periods", expanded=False):
 #     st.subheader("Standardized Periods Data")
