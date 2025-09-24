@@ -4,6 +4,7 @@ Transform claims transactional data to periods data
 import pandas as pd
 from datetime import timedelta
 from typing import List, Dict
+import numpy as np
 
 from .standardized_claims_schema import (
     StandardizedClaim, StaticClaimContext, DynamicClaimPeriod, 
@@ -114,20 +115,19 @@ def _create_periods_vectorized(claim_group: pd.DataFrame, date_received: pd.Time
     
     return periods
 
-def create_period_column(df):
+
+
+def create_period_column_fast(df):
     """
-    For each claim, create a complete period vector from period 0 to max period, 
-    filling missing periods with zero paid and expense.
+    Optimized version of create_period_column for better speed.
+    Uses vectorized operations and avoids Python loops.
     Assumes 'datetxn' is datetime and 'clmNum' exists. PERIOD_LENGTH_DAYS must be defined.
     """
-
     df = df.copy()
     # Calculate min transaction date per claim
     min_dates = df.groupby('clmNum')['datetxn'].transform('min')
     days_from_min = (df['datetxn'] - min_dates).dt.days
     df['period'] = days_from_min // PERIOD_LENGTH_DAYS
-    df['period_start_date'] = df['datetxn'] - pd.to_timedelta(days_from_min % PERIOD_LENGTH_DAYS, unit='D')
-    df['period_end_date'] = df['period_start_date'] + pd.to_timedelta(PERIOD_LENGTH_DAYS - 1, unit='D')
 
     # Aggregate paid and expense per claim/period
     incremental_cols = ['paid','expense','reserve','incurred']
@@ -138,22 +138,21 @@ def create_period_column(df):
 
     # Get min date per claim for period start calculation
     min_date_per_claim = df.groupby('clmNum')['datetxn'].min()
-
-    # Get max period per claim
     max_periods = period_agg.groupby('clmNum')['period'].max()
 
-    # Build full period DataFrame
-    all_periods = []
-    for clmNum, max_p in max_periods.items():
-        min_date = min_date_per_claim[clmNum]
-        periods = pd.DataFrame({
-            'clmNum': clmNum,
-            'period': range(0, max_p + 1)
-        })
-        periods['period_start_date'] = min_date + pd.to_timedelta(periods['period'] * PERIOD_LENGTH_DAYS, unit='D')
-        periods['period_end_date'] = periods['period_start_date'] + pd.to_timedelta(PERIOD_LENGTH_DAYS - 1, unit='D')
-        all_periods.append(periods)
-    full_periods = pd.concat(all_periods, ignore_index=True)
+    # Build all combinations of clmNum and period using reindexing (faster than Python loop)
+    clmNums = max_periods.index.values
+    max_ps = max_periods.values
+    period_ranges = [np.arange(0, p+1) for p in max_ps]
+    all_clmNums = np.repeat(clmNums, [len(r) for r in period_ranges])
+    all_periods = np.concatenate(period_ranges)
+    full_periods = pd.DataFrame({'clmNum': all_clmNums, 'period': all_periods})
+
+    # Map min_date to each clmNum
+    full_periods = full_periods.merge(min_date_per_claim.rename('min_date'), left_on='clmNum', right_index=True, how='left')
+    full_periods['period_start_date'] = full_periods['min_date'] + pd.to_timedelta(full_periods['period'] * PERIOD_LENGTH_DAYS, unit='D')
+    full_periods['period_end_date'] = full_periods['period_start_date'] + pd.to_timedelta(PERIOD_LENGTH_DAYS - 1, unit='D')
+    full_periods = full_periods.drop(columns='min_date')
 
     # Merge with actual data, fill missing with 0
     result = pd.merge(

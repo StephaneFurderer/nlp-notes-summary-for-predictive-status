@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 from helpers.UI.sidebar import initialize_sidebar, advanced_sidebar, test_if_claim_number_is_valid
-from helpers.functions.toPeriods_utils import create_period_column
+from helpers.functions.toPeriods_utils import create_period_column_fast
 from helpers.functions.claims_utils import read_transformed_claims_data_from_parquet
 
 from helpers.UI.plot_utils import plot_single_claim_lifetime
@@ -18,7 +18,7 @@ st.title("Claims Analysis")
 extraction_date = initialize_sidebar()
 df_raw_txn, closed_txn, open_txn, paid_txn, df_raw_final, closed_final, paid_final, open_final  = read_transformed_claims_data_from_parquet(extraction_date)
 df_raw_txn_filtered, df_raw_final_filtered, cause, status, claim_number = advanced_sidebar(df_raw_txn, df_raw_final)
-df_periods_filtered = create_period_column(df_raw_txn_filtered)
+df_periods_filtered = create_period_column_fast(df_raw_txn_filtered)
 
 
 # All data
@@ -38,7 +38,7 @@ with st.expander("Filtered data", expanded=False):
     st.dataframe(df_raw_final_filtered, use_container_width=True)
 
     st.subheader("Periods Data")
-    st.dataframe(df_periods_filtered[['clmNum', 'datetxn', 'period', 'period_start_date', 'period_end_date']], use_container_width=True)
+    st.dataframe(df_periods_filtered, use_container_width=True)
 
 if test_if_claim_number_is_valid(claim_number):
     with st.expander("Lifetime Development", expanded=False):
