@@ -271,51 +271,6 @@ def aggregate_by_booking_policy_claim(df,transaction_view:bool = False):
     
     return grouped
 
-# def import_data(extraction_date=None):
-#     """
-#     Load and process claims data using DataLoader
-
-#     Args:
-#         extraction_date: Date string in YYYY-MM-DD format (e.g., '2025-09-21')
-
-#     Returns:
-#         Processed DataFrame with claim features
-#     """
-#     from .load_cache_data import DataLoader
-
-#     # Initialize DataLoader
-#     data_loader = DataLoader()
-
-#     # If extraction_date is provided, use structured data loading
-#     if extraction_date:
-#         df = data_loader.load_claims_data(extraction_date=extraction_date)
-#         if df is None:
-#             raise FileNotFoundError(f"No claims data found for extraction date {extraction_date}")
-#     else:
-#         # Fallback: try to find the most recent extraction date
-#         available_versions = data_loader.get_available_data_versions()
-#         if not available_versions:
-#             raise FileNotFoundError("No organized claims data found. Please specify extraction_date.")
-
-#         # Use the most recent extraction date
-#         latest_date = available_versions[0]['extraction_date']
-#         print(f"Using latest available extraction date: {latest_date}")
-#         df = data_loader.load_claims_data(extraction_date=latest_date)
-#         if df is None:
-#             raise FileNotFoundError(f"Failed to load claims data for {latest_date}")
-
-#     # Process the data
-#     df['booknum'] = np.where(df['booknum'].isnull(), "NO_BOOKING_NUM", df['booknum'])
-#     df['dateCompleted'] = pd.to_datetime(df['dateCompleted'], errors='coerce')
-#     df['dateReopened'] = pd.to_datetime(df['dateReopened'], errors='coerce')
-#     df['datetxn'] = pd.to_datetime(df['datetxn'], errors='coerce')
-
-#     # Aggregate and process
-#     df_with_open_flag = aggregate_by_booking_policy_claim(df, transaction_view=True).sort_values('incurred', ascending=False)
-#     df_with_open_flag = df_with_open_flag.join(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
-
-#     return df_with_open_flag
-
 
 def _aggregate_by_booking_policy_claim(df):
     df_with_open_flag = aggregate_by_booking_policy_claim(df, transaction_view=True).sort_values('incurred', ascending=False)
@@ -496,6 +451,7 @@ def read_transformed_claims_data_from_parquet(extraction_date=None):
     if any(df is None for df in dfs):
         dfs = load_transformed_claims_data(extraction_date)
     return tuple(dfs)
+
 
 if __name__ == "__main__":
     """ 

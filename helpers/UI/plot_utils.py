@@ -15,6 +15,6 @@ def plot_single_claim_lifetime(df, selected_claim, x_axis: str, y_axis: list[str
     fig.update_layout(
         title_text=f"Claim {selected_claim} Development Pattern",
         xaxis_title=x_axis,
-        yaxis_title=", ".join(y_axis) if isinstance(y_axis, list) else str(y_axis)
+        yaxis_title="amount in $"
     )
     return fig
