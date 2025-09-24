@@ -1,4 +1,4 @@
-from helpers.functions.claims_utils import load_data, _filter_by_, calculate_claim_features
+from helpers.functions.claims_utils import transform_claims_raw_data, _filter_by_, calculate_claim_features
 from helpers.functions.plot_utils import plot_single_claim_lifetime
 from helpers.functions.nlp_utils import ClaimNotesNLPAnalyzer, create_nlp_feature_summary, analyze_claims_with_caching
 from helpers.functions.ml_models import ClaimStatusBaselineModel, ClaimStatusEnhancedModel, ClaimStatusNERModel, create_model_performance_summary, plot_feature_importance, plot_confusion_matrix, plot_prediction_comparison, plot_prediction_confidence_analysis, get_open_claims_for_prediction, plot_enhanced_feature_importance, plot_model_comparison, get_available_models
@@ -19,7 +19,7 @@ st.set_page_config(
 @st.cache_data
 def cached_load_data(report_date=None):
     """Cached wrapper for load_data function"""
-    return load_data(report_date)
+    return transform_claims_raw_data(report_date)
 
 @st.cache_data
 def cached_calculate_claim_features(df_hash):

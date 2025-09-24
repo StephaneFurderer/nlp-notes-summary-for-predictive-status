@@ -310,7 +310,7 @@ def import_data(extraction_date=None):
     return df_with_open_flag
 
 
-def load_data(report_date=None, extraction_date=None):
+def transform_claims_raw_data(df_raw_txn,report_date=None):
     """
     Load the data and return the dataframes:
     df_raw_txn: raw transaction data containing all transactions
@@ -404,7 +404,6 @@ def load_data(report_date=None, extraction_date=None):
         
         return df
 
-    df_raw_txn = import_data(extraction_date)
     # For real data, use clmStatus
     closed_txn = df_raw_txn[df_raw_txn['policy_has_open_claims'] == False]
     paid_txn = closed_txn[closed_txn['clmStatus'].isin(['PAID'])]

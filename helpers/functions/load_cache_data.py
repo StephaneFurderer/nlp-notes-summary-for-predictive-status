@@ -14,6 +14,90 @@ from typing import List, Dict, Any, Optional
 from .claims_data_schema import clean_and_convert_dataframe, get_claims_data_types
 
 
+# instead of print, use logging
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+BASE_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "_data")
+
+
+def get_available_data_versions() -> List[Dict[str, Any]]:
+    """
+    Get list of available data versions (extraction dates)
+    
+    Returns:
+        List of dictionaries with extraction date info
+    """
+    date_folders = glob.glob(os.path.join(BASE_DATA_DIR, "*") + os.path.sep)
+    extraction_dates = []
+    
+    for folder in date_folders:
+        date_name = os.path.basename(folder.rstrip(os.path.sep))
+        # Validate date format (YYYY-MM-DD)
+        try:
+            datetime.strptime(date_name, '%Y-%m-%d')
+            # Check if claims file exists
+            claims_file = os.path.join(folder, "clm_with_amt.csv")
+            if os.path.exists(claims_file):
+                extraction_dates.append({
+                    'extraction_date': date_name,
+                    'claims_file': claims_file,
+                    'folder_path': folder
+                })
+        except ValueError:
+            # Skip folders that don't match date format (like 'cache')
+            continue
+    
+    # Sort by date (newest first)
+    extraction_dates.sort(key=lambda x: x['extraction_date'], reverse=True)
+    return extraction_dates
+
+def load_claims_data(self, extraction_date: Optional[str] = None, 
+                        claims_file: Optional[str] = None) -> Optional[pd.DataFrame]:
+    """
+    Load claims data from structured folders with parquet caching
+    
+    Args:
+        extraction_date: Date string for structured approach
+        claims_file: Direct file path (if not using structured approach)
+        
+    Returns:
+        Claims DataFrame or None if not found
+    """
+    if extraction_date:
+        # Load directly from date directory
+        date_dir = os.path.join(BASE_DATA_DIR, extraction_date)
+        claims_file = os.path.join(date_dir, "clm_with_amt.csv")
+        if not os.path.exists(claims_file):
+            logger.info(f"No claims file found for extraction date {extraction_date}")
+            return None
+    
+    if claims_file and os.path.exists(claims_file):
+        # Check for parquet cache
+        parquet_file = claims_file.replace('.csv', '.parquet')
+        
+        if os.path.exists(parquet_file):
+            df = pd.read_parquet(parquet_file)
+            logger.info(f"Loaded cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
+            return df
+        else:
+            # Load from CSV and save as parquet
+            df = pd.read_csv(claims_file)
+        
+            # Clean and convert data according to schema
+            df = clean_and_convert_dataframe(df)
+        
+            df.to_parquet(parquet_file)
+            logger.info(f"Loaded and cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
+            return df
+    else:
+        logger.info(f"Claims file not found: {claims_file}")
+        return None
+
+
+
+
 class CacheManager:
     """
     Simple cache manager for periodized data using structured folders
@@ -69,78 +153,9 @@ class DataLoader:
         self.base_data_dir = base_data_dir
         self.cache_manager = CacheManager(base_data_dir)
     
-    def get_available_data_versions(self) -> List[Dict[str, Any]]:
-        """
-        Get list of available data versions (extraction dates)
-        
-        Returns:
-            List of dictionaries with extraction date info
-        """
-        date_folders = glob.glob(os.path.join(self.base_data_dir, "*") + os.path.sep)
-        extraction_dates = []
-        
-        for folder in date_folders:
-            date_name = os.path.basename(folder.rstrip(os.path.sep))
-            # Validate date format (YYYY-MM-DD)
-            try:
-                datetime.strptime(date_name, '%Y-%m-%d')
-                # Check if claims file exists
-                claims_file = os.path.join(folder, "clm_with_amt.csv")
-                if os.path.exists(claims_file):
-                    extraction_dates.append({
-                        'extraction_date': date_name,
-                        'claims_file': claims_file,
-                        'folder_path': folder
-                    })
-            except ValueError:
-                # Skip folders that don't match date format (like 'cache')
-                continue
-        
-        # Sort by date (newest first)
-        extraction_dates.sort(key=lambda x: x['extraction_date'], reverse=True)
-        return extraction_dates
     
-    def load_claims_data(self, extraction_date: Optional[str] = None, 
-                        claims_file: Optional[str] = None) -> Optional[pd.DataFrame]:
-        """
-        Load claims data from structured folders with parquet caching
-        
-        Args:
-            extraction_date: Date string for structured approach
-            claims_file: Direct file path (if not using structured approach)
-            
-        Returns:
-            Claims DataFrame or None if not found
-        """
-        if extraction_date:
-            # Load directly from date directory
-            date_dir = os.path.join(self.base_data_dir, extraction_date)
-            claims_file = os.path.join(date_dir, "clm_with_amt.csv")
-            if not os.path.exists(claims_file):
-                print(f"⚠️ No claims file found for extraction date {extraction_date}")
-                return None
-        
-        if claims_file and os.path.exists(claims_file):
-            # Check for parquet cache
-            parquet_file = claims_file.replace('.csv', '.parquet')
-            
-            if os.path.exists(parquet_file):
-                df = pd.read_parquet(parquet_file)
-                print(f"📁 Loaded cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
-                return df
-            
-            # Load from CSV and save as parquet
-            df = pd.read_csv(claims_file)
-            
-            # Clean and convert data according to schema
-            df = clean_and_convert_dataframe(df)
-            
-            df.to_parquet(parquet_file)
-            print(f"📁 Loaded and cached claims data: {len(df):,} transactions from {df['clmNum'].nunique():,} claims")
-            return df
-        else:
-            print(f"⚠️ Claims file not found: {claims_file}")
-            return None
+    
+    
     
     def load_notes_data(self, extraction_date: Optional[str] = None,
                        notes_file: Optional[str] = None) -> Optional[pd.DataFrame]:
