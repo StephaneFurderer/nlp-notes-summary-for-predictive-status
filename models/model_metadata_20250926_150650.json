@@ -1,0 +1,17 @@
+{
+  "model_type": "LSTM (PyTorch)",
+  "model_params": {
+    "hidden_size": 50,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "epochs": 100,
+    "batch_size": 32,
+    "learning_rate": 0.001
+  },
+  "lookback": 15,
+  "train_split": 0.8,
+  "timestamp": "20250926_150650",
+  "model_path": "models/lstm_model_20250926_150650.pth",
+  "scaler_min": 0.0,
+  "scaler_max": 201444.3403213988
+}
