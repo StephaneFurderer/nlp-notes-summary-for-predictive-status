@@ -86,6 +86,116 @@ def load_claims_data():
     
     return df_periods, None
 
+def flatten_claims_periods(
+    df_periods: pd.DataFrame,
+    max_periods: int = 60,
+    claim_id_col: str = 'clmNum',
+    period_col: str = 'period',
+    payment_col: str = 'paid'
+) -> pd.DataFrame:
+    """Flatten per-period claim rows into wide per-claim rows.
+
+    Target columns:
+      - claim_id (sequential 0..N-1)
+      - total_payments (sum of payments across all periods)
+      - n_payments (count of periods with payment > 0)
+      - first_payment_period (min period index with payment > 0, or max_periods if none)
+      - last_payment_period (max period index with payment > 0, or 0 if none)
+      - cumulative_period_0..{max_periods-1}
+      - payment_period_0..{max_periods-1}
+
+    Args:
+        df_periods: Long-form dataframe with at least claim, period, and payment columns.
+        max_periods: Number of periods to project/flatten into.
+        claim_id_col: Column name for claim identifier in df_periods.
+        period_col: Column name for period index in df_periods.
+        payment_col: Column name for payment amount in df_periods.
+
+    Returns:
+        Wide dataframe matching the target flattened schema used by the LSTM.
+    """
+    if df_periods is None or len(df_periods) == 0:
+        return pd.DataFrame(
+            columns=(
+                ['claim_id', 'total_payments', 'n_payments', 'first_payment_period', 'last_payment_period']
+                + [f'cumulative_period_{i}' for i in range(max_periods)]
+                + [f'payment_period_{i}' for i in range(max_periods)]
+            )
+        )
+
+    # Ensure required columns exist
+    required_cols = {claim_id_col, period_col, payment_col}
+    missing = required_cols.difference(df_periods.columns)
+    if missing:
+        raise ValueError(f"Missing required columns in df_periods: {sorted(missing)}")
+
+    # Normalize and bound periods to [0, max_periods-1]
+    df = df_periods[[claim_id_col, period_col, payment_col]].copy()
+    df[period_col] = pd.to_numeric(df[period_col], errors='coerce').fillna(0).astype(int)
+    df[period_col] = df[period_col].clip(lower=0, upper=max_periods - 1)
+    df[payment_col] = pd.to_numeric(df[payment_col], errors='coerce').fillna(0.0).astype(float)
+
+    # Prepare output arrays
+    claim_groups = df.groupby(claim_id_col, sort=False)
+    num_claims = claim_groups.ngroups
+    payments_matrix = np.zeros((num_claims, max_periods), dtype=float)
+
+    # Fill payment amounts per claim and period
+    for row_index, (claim_key, g) in enumerate(claim_groups):
+        # Aggregate by period in case there are multiple rows per claim-period
+        per_period = g.groupby(period_col, as_index=False)[payment_col].sum()
+        for _, r in per_period.iterrows():
+            p_idx = int(r[period_col])
+            if 0 <= p_idx < max_periods:
+                payments_matrix[row_index, p_idx] += float(r[payment_col])
+
+    # Compute derived metrics
+    cumulative_matrix = np.cumsum(payments_matrix, axis=1)
+    total_payments = payments_matrix.sum(axis=1)
+    n_payments = (payments_matrix > 0).sum(axis=1)
+
+    # First and last payment period indices
+    first_payment_period = np.full(num_claims, max_periods, dtype=int)
+    last_payment_period = np.zeros(num_claims, dtype=int)
+    for i in range(num_claims):
+        nonzero_indices = np.nonzero(payments_matrix[i] > 0)[0]
+        if nonzero_indices.size > 0:
+            first_payment_period[i] = int(nonzero_indices.min())
+            last_payment_period[i] = int(nonzero_indices.max())
+        else:
+            # Keep defaults: first=max_periods, last=0 (matches sample file behavior)
+            pass
+
+    # Assemble output DataFrame
+    columns = (
+        ['claim_id', 'total_payments', 'n_payments', 'first_payment_period', 'last_payment_period']
+        + [f'cumulative_period_{i}' for i in range(max_periods)]
+        + [f'payment_period_{i}' for i in range(max_periods)]
+    )
+
+    out = np.concatenate(
+        [
+            np.arange(num_claims).reshape(-1, 1),
+            total_payments.reshape(-1, 1),
+            n_payments.reshape(-1, 1),
+            first_payment_period.reshape(-1, 1),
+            last_payment_period.reshape(-1, 1),
+            cumulative_matrix,
+            payments_matrix,
+        ],
+        axis=1,
+    )
+
+    df_flat = pd.DataFrame(out, columns=columns)
+
+    # Ensure types closely match expectations
+    df_flat['claim_id'] = df_flat['claim_id'].astype(int)
+    df_flat['n_payments'] = df_flat['n_payments'].astype(int)
+    df_flat['first_payment_period'] = df_flat['first_payment_period'].astype(int)
+    df_flat['last_payment_period'] = df_flat['last_payment_period'].astype(int)
+
+    return df_flat
+
 def create_lstm_dataset(sequences, lookback=10):
     """Convert sequences to LSTM format - predicting payment increments"""
     X, y = [], []
