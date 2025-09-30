@@ -491,7 +491,7 @@ def compute_periods_data(dfs, extraction_date, period_func=None):
             # recompute all the cumulative amounts
             periods['paid_cumsum'] = periods.groupby('clmNum')['paid'].cumsum()
             periods['expense_cumsum'] = periods.groupby('clmNum')['expense'].cumsum()
-            periods['recovery_cumsum'] = periods.groupby('clmNum')['recovery'].cumsum()
+            #periods['recovery_cumsum'] = periods.groupby('clmNum')['recovery'].cumsum()
             periods['reserve_cumsum'] = periods.groupby('clmNum')['reserve'].cumsum()
             periods['incurred_cumsum'] = periods.groupby('clmNum')['incurred'].cumsum()
             period_dfs.append(periods)

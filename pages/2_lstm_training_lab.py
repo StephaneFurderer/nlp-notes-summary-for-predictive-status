@@ -22,6 +22,9 @@ import os
 extraction_date = "2025-09-21"
 df_periods = pd.read_parquet(os.path.join(BASE_DATA_DIR, extraction_date,"closed_txn_to_periods.parquet"))
 
+st.sidebar.header("Filtering Options")
+evaluation_date = st.sidebar.text_input("Evaluation Date", value="2025-09-30", help="Evaluation date for reserving (YYYY-MM-DD format)")
+
 def filter_data_for_lstm_training(df_periods,evaluation_date:str='2025-09-30',clmCause:str='ABB_SLIP_&_FALL',clmStatus:str=['CLOSED','PAID','DENIED']):
     """ Filter closed claims for LSTM training """
     # remove blank spaces from clmStatus and clmCause
@@ -36,7 +39,9 @@ def filter_data_for_lstm_training(df_periods,evaluation_date:str='2025-09-30',cl
 # Step 1: Data Preview
 st.header("Step 1: Your Data")
 st.write(f"**Shape:** {df_periods.shape}")
-st.write("**Columns:**", list(df_periods.columns))
+st.write(f"**unique claims:** {df_periods['clmNum'].nunique()}")
+
+df_periods = filter_data_for_lstm_training(df_periods,evaluation_date = evaluation_date)
 
 with st.expander("Data Preview", expanded=False):
     st.dataframe(df_periods.head(20))
