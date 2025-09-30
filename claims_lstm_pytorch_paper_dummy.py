@@ -53,7 +53,7 @@ def main():
         st.stop()
 
     st.sidebar.header("Parameters")
-    lookback = st.sidebar.slider("Lookback Window", 5, 30, 15, 5)
+    valuation_date = st.sidebar.text_input("Valuation Date", value="2025-09", help="Valuation date for reserving (YYYY-MM format)")
     train_split = st.sidebar.slider("Training Split", 0.6, 0.95, 0.8, 0.05)
     hidden_size = st.sidebar.slider("Hidden Size", 32, 256, 64, 32)
     num_layers = st.sidebar.slider("Layers", 1, 4, 2, 1)
@@ -86,106 +86,13 @@ def main():
     device = get_device()
     st.write(f"Device: {device}")
 
-    # Build lookback-based batches instead of full sequences
-    def build_lookback_batches(inc_std, occ, j_over_n, observed, target_mask, batch_size, device, lookback):
-        B, N = inc_std.shape
-        X_list, y_star_list, I_list, mask_list = [], [], [], []
-        
-        for i in range(B):
-            for j in range(lookback, N):
-                # Input: last lookback periods
-                inc_feat = inc_std[i, j-lookback:j]
-                occ_feat = occ[i, j-lookback:j]
-                obs_feat = observed[i, j-lookback:j]
-                j_feat = j_over_n[j-lookback:j]
-                X = np.stack([inc_feat, occ_feat, j_feat, obs_feat], axis=-1).astype(np.float32)
-                
-                # Target: next period
-                y_star = inc_std[i, j]
-                I = occ[i, j]
-                mask = target_mask[i, j-1] if j > 0 else 1.0
-                
-                X_list.append(X)
-                y_star_list.append(y_star)
-                I_list.append(I)
-                mask_list.append(mask)
-        
-        if not X_list:
-            return None
-            
-        X_tensor = torch.from_numpy(np.array(X_list))
-        y_star_tensor = torch.from_numpy(np.array(y_star_list).astype(np.float32))
-        I_tensor = torch.from_numpy(np.array(I_list).astype(np.float32))
-        mask_tensor = torch.from_numpy(np.array(mask_list).astype(np.float32))
-        
-        ds = TensorDataset(X_tensor, y_star_tensor, I_tensor, mask_tensor)
-        num_workers = max(1, (os.cpu_count() or 4) - 1)
-        loader = DataLoader(
-            ds, batch_size=batch_size, shuffle=True,
-            pin_memory=(device.type == 'cuda'), num_workers=num_workers,
-            persistent_workers=True, prefetch_factor=2, drop_last=False
-        )
-        return loader
-    
-    train_loader = build_lookback_batches(inc_train_std, occ_train, j_over_n, obs_train, mask_train, batch_size, device, lookback)
-    val_loader = build_lookback_batches(inc_val_std, occ_val, j_over_n, obs_val, mask_val, batch_size, device, lookback)
+    # Use full sequences (no lookback constraint) - train on complete historical patterns
+    train_loader = build_batches(inc_train_std, occ_train, j_over_n, obs_train, mask_train, batch_size, device)
+    val_loader = build_batches(inc_val_std, occ_val, j_over_n, obs_val, mask_val, batch_size, device)
 
     model = DualHeadLSTM(input_size=4, hidden_size=hidden_size, num_layers=num_layers, dropout=dropout).to(device)
 
-    # Training function tailored for lookback windows (uses last timestep only)
-    def train_model_lookback(model, train_loader, val_loader, device, epochs=50, lr=1e-3, alpha_cls=1.0):
-        optimizer = optim.Adam(model.parameters(), lr=lr)
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
-        bce = nn.BCELoss(reduction='none')
-        mse = nn.MSELoss(reduction='none')
-        history = {'train_loss': [], 'val_loss': []}
-        for epoch in range(epochs):
-            model.train()
-            train_losses = []
-            for X, y_star, I, mask in train_loader:
-                X = X.to(device)
-                y_star = y_star.to(device)
-                I = I.to(device)
-                mask = mask.to(device)
-                optimizer.zero_grad(set_to_none=True)
-                y_hat_star, p_hat = model(X)
-                y_last = y_hat_star[:, -1]
-                p_last = p_hat[:, -1]
-                ce = bce(p_last, I) * mask
-                rl = mse(y_last, y_star) * I * mask
-                inv_var_reg = torch.exp(-model.log_sigma_reg * 2)
-                inv_var_cls = torch.exp(-model.log_sigma_cls * 2)
-                loss = inv_var_reg * rl.mean() + alpha_cls * inv_var_cls * ce.mean() \
-                       + model.log_sigma_reg * 2 + model.log_sigma_cls * 2
-                loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
-                train_losses.append(loss.detach().item())
-            train_loss = float(np.mean(train_losses)) if train_losses else 0.0
-            # Validation
-            model.eval()
-            val_losses = []
-            with torch.no_grad():
-                for X, y_star, I, mask in val_loader:
-                    X = X.to(device)
-                    y_star = y_star.to(device)
-                    I = I.to(device)
-                    mask = mask.to(device)
-                    y_hat_star, p_hat = model(X)
-                    y_last = y_hat_star[:, -1]
-                    p_last = p_hat[:, -1]
-                    ce = bce(p_last, I) * mask
-                    rl = mse(y_last, y_star) * I * mask
-                    inv_var_reg = torch.exp(-model.log_sigma_reg * 2)
-                    inv_var_cls = torch.exp(-model.log_sigma_cls * 2)
-                    loss = inv_var_reg * rl.mean() + alpha_cls * inv_var_cls * ce.mean() \
-                           + model.log_sigma_reg * 2 + model.log_sigma_cls * 2
-                    val_losses.append(loss.item())
-            scheduler.step()
-            val_loss = float(np.mean(val_losses)) if val_losses else 0.0
-            history['train_loss'].append(train_loss)
-            history['val_loss'].append(val_loss)
-        return history
+    # Use the original full-sequence training from the paper
 
     # Tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Data Overview", "🔧 Data Preparation", "🤖 Model Training", "🎯 Predictions", "📊 Analysis", "🔍 Individual Claims"]) 
@@ -223,7 +130,7 @@ def main():
     with tab3:
         if st.button("🚀 Train on Dummy Data", type="primary"):
             with st.spinner("Training..."):
-                history = train_model_lookback(model, train_loader, val_loader, device, epochs=epochs, lr=lr, alpha_cls=alpha_cls)
+                history = train_model(model, train_loader, val_loader, device, epochs=epochs, lr=lr, alpha_cls=alpha_cls)
             st.success("Training complete")
             st.line_chart({'train_loss': history['train_loss'], 'val_loss': history['val_loss']})
             st.session_state.paper_dummy_model = model
@@ -282,22 +189,25 @@ def main():
         if 'paper_dummy_model' in st.session_state:
             m = st.session_state.paper_dummy_model
             m.eval()
-            # AUROC using last-timestep predictions for each window (lookback training)
-            y_true_all, y_pred_all = [], []
+            # AUROC per period (full sequence training)
+            all_I, all_p = [], []
             with torch.no_grad():
                 for X, y_star, I, mask in val_loader:
                     X = X.to(device)
                     _, p_hat = m(X)
-                    p_last = p_hat[:, -1].cpu().numpy()
-                    y_true_all.append(I.numpy())
-                    y_pred_all.append(p_last)
-            y_true_all = np.concatenate(y_true_all)
-            y_pred_all = np.concatenate(y_pred_all)
-            if len(np.unique(y_true_all)) > 1:
-                auc = float(roc_auc_score(y_true_all, y_pred_all))
-            else:
-                auc = None
-            st.write({"AUROC_last_step": auc, "samples": int(y_true_all.shape[0])})
+                    all_I.append(I.numpy())
+                    all_p.append(p_hat.cpu().numpy())
+            I_mat = np.concatenate(all_I)
+            P_mat = np.concatenate(all_p)
+            aurocs = []
+            for t in range(P_mat.shape[1]):
+                y_true = I_mat[:, t]
+                y_pred = P_mat[:, t]
+                if len(np.unique(y_true)) > 1:
+                    aurocs.append(roc_auc_score(y_true, y_pred))
+                else:
+                    aurocs.append(np.nan)
+            st.write({f"AUROC_period_{t+1}": (float(a) if not np.isnan(a) else None) for t, a in enumerate(aurocs)})
 
     with tab6:
         if 'paper_dummy_model' in st.session_state:
@@ -320,7 +230,7 @@ def main():
                 return
             selected_id = st.selectbox("Select claim_id", pool_claim_ids)
             sel_pos = pool_claim_ids.index(selected_id)
-            # Use the same lookback as training
+            # Use full sequence prediction (no lookback constraint)
             T_full = HORIZON_N - 1
             inc_std_all = pool_inc_std[sel_pos, :T_full]
             occ_all = pool_occ[sel_pos, :T_full]
@@ -329,41 +239,30 @@ def main():
             mu_d = st.session_state.paper_dummy_mu
             sigma_d = st.session_state.paper_dummy_sigma
 
-            expected_inc = np.zeros(T_full, dtype=float)
-            # Predict each future period j using last lookback periods
+            # Build single-claim features X[1, T, F] for full sequence
+            inc_feat = inc_std_all
+            occ_feat = occ_all
+            obs_feat = obs_all
+            j_feat = j_over_n[:T_full]
+            X_single = np.stack([inc_feat, occ_feat, j_feat, obs_feat], axis=-1).astype(np.float32)[None, ...]
+
             with torch.no_grad():
-                for j in range(lookback, T_full + 0):
-                    inc_feat = inc_std_all[j-lookback:j]
-                    occ_feat = occ_all[j-lookback:j]
-                    obs_feat = obs_all[j-lookback:j]
-                    j_feat = j_over_n[j-lookback:j]
-                    X_win = np.stack([inc_feat, occ_feat, j_feat, obs_feat], axis=-1).astype(np.float32)[None, ...]
-                    y_star_win, p_hat_win = m(torch.from_numpy(X_win).to(device))
-                    y_star_last = y_star_win[:, -1].cpu().numpy()[0]
-                    p_last = p_hat_win[:, -1].cpu().numpy()[0]
-                    expected_inc[j] = float(p_last * (y_star_last * sigma_d + mu_d))
+                X_t = torch.from_numpy(X_single).to(device)
+                y_hat_star, p_hat = m(X_t)
+                y_hat_star = y_hat_star.cpu().numpy()[0]
+                p_hat = p_hat.cpu().numpy()[0]
+                expected_inc = p_hat * (y_hat_star * sigma_d + mu_d)
 
             periods = np.arange(1, HORIZON_N)
             fig = go.Figure()
-            fig.add_trace(go.Bar(x=periods, y=expected_inc, name=f'Expected Increment (lookback={lookback})'))
-            fig.update_layout(title=f"Claim {selected_id} - Expected Increments (Lookback={lookback})")
+            fig.add_trace(go.Bar(x=periods, y=expected_inc, name=f'Expected Increment (Full Sequence)'))
+            fig.update_layout(title=f"Claim {selected_id} - Expected Increments (Full Sequence Training)")
             st.plotly_chart(fig, use_container_width=True)
 
             # Plot observed vs predicted occurrence probabilities
             observed_I = pool_occ[sel_pos, 1:T_full+1]
             fig_prob = go.Figure()
-            # Build p_series for periods 1..N-1
-            p_series = np.zeros_like(expected_inc)
-            with torch.no_grad():
-                for j in range(lookback, T_full + 0):
-                    inc_feat = inc_std_all[j-lookback:j]
-                    occ_feat = occ_all[j-lookback:j]
-                    obs_feat = obs_all[j-lookback:j]
-                    j_feat = j_over_n[j-lookback:j]
-                    X_win = np.stack([inc_feat, occ_feat, j_feat, obs_feat], axis=-1).astype(np.float32)[None, ...]
-                    _, p_hat_win = m(torch.from_numpy(X_win).to(device))
-                    p_series[j] = float(p_hat_win[:, -1].cpu().numpy()[0])
-            fig_prob.add_trace(go.Scatter(x=periods, y=p_series, mode='lines+markers', name='Predicted p(no-zero)'))
+            fig_prob.add_trace(go.Scatter(x=periods, y=p_hat, mode='lines+markers', name='Predicted p(no-zero)'))
             fig_prob.add_trace(go.Scatter(x=periods, y=observed_I, mode='lines+markers', name='Observed I', opacity=0.6))
             fig_prob.update_layout(title='Occurrence: Predicted probability vs Observed indicator', xaxis_title='Period', yaxis_title='Probability / Indicator')
             st.plotly_chart(fig_prob, use_container_width=True)
@@ -373,15 +272,10 @@ def main():
             actual_cum = df_flat[df_flat['claim_id'] == selected_id][cum_cols].iloc[0].to_numpy(dtype=float)
             pred_cum = np.concatenate([[0.0], np.cumsum(expected_inc)])
             
-            # Add anchor point to bridge the gap
-            if lookback < HORIZON_N:
-                anchor_period = lookback - 1
-                anchor_value = actual_cum[anchor_period]
-                pred_cum[lookback:] = pred_cum[lookback:] - pred_cum[lookback] + anchor_value
-            
             fig_ap = go.Figure()
             fig_ap.add_trace(go.Scatter(x=np.arange(HORIZON_N), y=actual_cum, mode='lines+markers', name='Actual'))
             fig_ap.add_trace(go.Scatter(x=np.arange(HORIZON_N), y=pred_cum, mode='lines+markers', name='Predicted'))
+            fig_ap.update_layout(title='Actual vs Predicted Cumulative (Full Sequence)', xaxis_title='Period', yaxis_title='Amount')
             st.plotly_chart(fig_ap, use_container_width=True)
 
 
