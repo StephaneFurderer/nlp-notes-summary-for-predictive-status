@@ -25,6 +25,9 @@ from helpers.functions.CONST import BASE_DATA_DIR
 import os
 extraction_date = "2025-09-21"
 df_periods = pd.read_parquet(os.path.join(BASE_DATA_DIR, extraction_date,"closed_txn_to_periods.parquet"))
+st.header("Step 1: Your Data")
+st.write(f"**Shape:** {df_periods.shape}")
+st.write(f"**unique claims:** {df_periods['clmNum'].nunique()}")
 
 st.sidebar.header("Filtering Options")
 evaluation_date = st.sidebar.text_input("Evaluation Date", value="2025-09-30", help="Evaluation date for reserving (YYYY-MM-DD format)")
@@ -42,15 +45,15 @@ def filter_data_for_lstm_training(df_periods,evaluation_date:str='2025-09-30',cl
 
 
 
-df_periods = filter_data_for_lstm_training(df_periods,evaluation_date = evaluation_date)
+df_filtered = filter_data_for_lstm_training(df_periods,evaluation_date = evaluation_date)
 
 # Step 1: Data Preview
 st.header("Step 1: Your Data")
-st.write(f"**Shape:** {df_periods.shape}")
-st.write(f"**unique claims:** {df_periods['clmNum'].nunique()}")
+st.write(f"**Shape:** {df_filtered.shape}")
+st.write(f"**unique claims:** {df_pedf_filteredriods['clmNum'].nunique()}")
 
 with st.expander("Data Preview", expanded=False):
-    st.dataframe(df_periods.head(20))
+    st.dataframe(df_filtered)
 
 
 def split_data_for_lstm(df_periods, split_ratio: List[float] = [0.6, 0.2, 0.2]):
@@ -68,22 +71,22 @@ def split_data_for_lstm(df_periods, split_ratio: List[float] = [0.6, 0.2, 0.2]):
 
 ##### Step 2: Data Preparation for LSTM training
 # sort the claims by period_start_date and split into train, val, test with  60/20/20 ratio
-df_periods = split_data_for_lstm(df_periods)
+df_filtered = split_data_for_lstm(df_filtered)
 
-df_periods['Y'] = df_periods['paid']
+df_filtered['Y'] = df_filtered['paid']
 
 # scale the data based on the train data
-df_train = df_periods[df_periods['dataset_split']=='train']
+df_train = df_filtered[df_filtered['dataset_split']=='train']
 df_train_mean = df_train['Y'].mean()
 df_train_std = df_train['Y'].std()
-df_periods['Y_star'] = (df_periods['Y'] - df_train_mean) / df_train_std
-df_periods['Y_star_cumsum'] = df_periods['Y_star'].cumsum()
+df_filtered['Y_star'] = (df_filtered['Y'] - df_train_mean) / df_train_std
+df_filtered['Y_star_cumsum'] = df_filtered['Y_star'].cumsum()
 
 with st.expander("Training Data Statistics"):
     st.write(f"**mean of Y:** {df_train_mean}")
     st.write(f"**std of Y:** {df_train_std}")
-    st.write(f"**mean of Y_star:** {df_periods['Y_star'].mean()}")
-    st.write(f"**std of Y_star:** {df_periods['Y_star'].std()}")
+    st.write(f"**mean of Y_star:** {df_filtered['Y_star'].mean()}")
+    st.write(f"**std of Y_star:** {df_filtered['Y_star'].std()}")
 
 
 # prepare the sequences from the df_periods
@@ -114,9 +117,9 @@ def prepare_X_y(df_periods,set_name:str=['train','val','test']):
     
     return X, y, statuses    
 
-X_train, y_train, status_train = prepare_X_y(df_periods,'train')
-X_val, y_val, status_val = prepare_X_y(df_periods,'val')
-X_test, y_test, status_test = prepare_X_y(df_periods,'test')
+X_train, y_train, status_train = prepare_X_y(df_filtered,'train')
+X_val, y_val, status_val = prepare_X_y(df_filtered,'val')
+X_test, y_test, status_test = prepare_X_y(df_filtered,'test')
 
 # Show sequence statistics
 st.markdown("**Sequence Statistics:**")
