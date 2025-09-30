@@ -96,6 +96,9 @@ def prepare_X_y(df_periods,set_name:str=['train','val','test']):
             X.append(data[data['period']==i]['Y_star_cumsum'].values)
             y.append(data[data['period']==i]['Y_star'])
     
+    # Convert lists to numpy arrays before reshaping
+    X = np.array(X)
+    y = np.array(y)
     X = X.reshape(X.shape[0], X.shape[1], 1)
     return X, y    
 
