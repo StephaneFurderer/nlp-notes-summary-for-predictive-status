@@ -130,49 +130,23 @@ unique_statuses = np.unique(status_train)
 colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
 status_colors = {status: colors[i % len(colors)] for i, status in enumerate(unique_statuses)}
 
-fig = go.Figure()
+# Validate that df_train exists and has the required columns before plotting
+required_columns = {"clmStatus", "period", "Y"}
+if 'df_train' in locals() and isinstance(df_train, pd.DataFrame) and required_columns.issubset(df_train.columns):
+    fig = go.Figure()
+    for status in df_train["clmStatus"].unique():
+        status_df = df_train[df_train["clmStatus"] == status]
+        fig.add_trace(go.Scatter(
+            x=status_df["period"],
+            y=status_df["Y"],
+            mode='lines',
+            name=status,
+            line=dict(width=2)
+        ))
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("df_train is not defined or does not contain the required columns: 'clmStatus', 'period', 'Y'.")
 
-# Plot up to 100 sequences on the same graph with color coding
-for i in range(min(100, len(X_train))):
-    sample_seq = X_train[i]  # This is already a 1D array
-    claim_status = status_train[i]
-    color = status_colors[claim_status]
-    
-    fig.add_trace(go.Scatter(
-        x=list(range(len(sample_seq))),
-        y=sample_seq,
-        mode='lines',
-        name=f'Claim {i+1} ({claim_status})',
-        showlegend=False,
-        opacity=0.6,
-        line=dict(width=1, color=color)
-    ))
-
-# Add legend for status colors
-legend_traces = []
-for status, color in status_colors.items():
-    legend_traces.append(go.Scatter(
-        x=[None], y=[None],
-        mode='lines',
-        name=status,
-        line=dict(color=color, width=3),
-        showlegend=True
-    ))
-
-fig.add_traces(legend_traces)
-
-fig.update_layout(
-    title="First 100 Claims - Cumulative Payment Patterns (Color-coded by Status)",
-    xaxis_title="Period",
-    yaxis_title="Cumulative Payments (Scaled)",
-    height=500
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# Show status distribution
-st.markdown("**Claim Status Distribution:**")
-status_counts = pd.Series(status_train).value_counts()
-st.bar_chart(status_counts)
 
  # for the LSTM model, we need to reshape the data to [batch_size, sequence_length, 1]
 
