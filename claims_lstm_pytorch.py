@@ -346,10 +346,9 @@ def calculate_test_set_accuracy(model, model_type, scaler, test_claim_ids, claim
             else:
                 pred_increment = make_sklearn_predictions(model, input_seq)
             
-            # Convert back to original scale
-            pred_increment_orig = scaler.inverse_transform(
-                pred_increment.reshape(-1, 1)
-            ).flatten()[0]
+            # Convert predicted increment back to dollar scale correctly
+            data_range = (scaler.data_max_[0] - scaler.data_min_[0])
+            pred_increment_orig = (pred_increment.flatten()[0]) * data_range
             
             # Add the predicted increment to the previous cumulative payment
             previous_cumulative = claim_cumulative[-2] if len(claim_cumulative) > 1 else 0
@@ -612,10 +611,13 @@ def main():
             sequences.append(cumulative_payments)
         
         # Scale the data
+        # Fit ONE scaler across all cumulative values for consistency
         scaler = MinMaxScaler()
+        all_cumulative_values = np.array([val for seq in sequences for val in seq]).reshape(-1, 1)
+        scaler.fit(all_cumulative_values)
         sequences_scaled = []
         for seq in sequences:
-            scaled_seq = scaler.fit_transform(np.array(seq).reshape(-1, 1)).flatten()
+            scaled_seq = scaler.transform(np.array(seq).reshape(-1, 1)).flatten()
             sequences_scaled.append(scaled_seq)
         
         # Create supervised learning dataset
@@ -901,13 +903,10 @@ def main():
             with col3:
                 st.metric("RMSE", f"{rmse:.6f}")
             
-            # Convert back to original scale
-            y_test_orig = st.session_state.scaler.inverse_transform(
-                st.session_state.y_test.reshape(-1, 1)
-            ).flatten()
-            y_pred_orig = st.session_state.scaler.inverse_transform(
-                y_pred.reshape(-1, 1)
-            ).flatten()
+            # Convert increments back to dollar scale correctly (no +min offset)
+            data_range = (st.session_state.scaler.data_max_[0] - st.session_state.scaler.data_min_[0])
+            y_test_orig = (st.session_state.y_test * data_range).flatten()
+            y_pred_orig = (y_pred * data_range).flatten()
             
             # Predictions plot
             fig4 = go.Figure()
@@ -941,9 +940,9 @@ def main():
             ))
             
             fig4.update_layout(
-                title="Predictions vs Actual Values",
-                xaxis_title="Actual Cumulative Payments ($)",
-                yaxis_title="Predicted Cumulative Payments ($)",
+                title="Predicted Increment vs Actual Increment",
+                xaxis_title="Actual Increment ($)",
+                yaxis_title="Predicted Increment ($)",
                 height=500
             )
             
@@ -1185,10 +1184,9 @@ def main():
                 else:
                     pred_increment = make_sklearn_predictions(st.session_state.model, input_seq)
                 
-                # Convert back to original scale
-                pred_increment_orig = st.session_state.scaler.inverse_transform(
-                    pred_increment.reshape(-1, 1)
-                ).flatten()[0]
+                # Convert predicted increment back to dollar scale correctly
+                data_range = (st.session_state.scaler.data_max_[0] - st.session_state.scaler.data_min_[0])
+                pred_increment_orig = (pred_increment.flatten()[0]) * data_range
                 
                 # Add the predicted increment to the previous cumulative payment
                 previous_cumulative = claim_cumulative[i-1] if i > 0 else 0
@@ -1200,7 +1198,7 @@ def main():
             # Create prediction visualization
             fig_predictions = go.Figure()
             
-            # Actual cumulative payments
+            # Actual cumulative payments (entire history) so you can see context before lookback
             fig_predictions.add_trace(go.Scatter(
                 x=periods,
                 y=claim_cumulative,
@@ -1210,10 +1208,17 @@ def main():
                 marker=dict(size=6)
             ))
             
-            # Predictions
+            # Predictions with an anchor point at lookback-1 to avoid a visual gap
+            anchor_x = prediction_periods[0] - 1 if prediction_periods else None
+            if anchor_x is not None and anchor_x >= 0:
+                pred_x = [anchor_x] + prediction_periods
+                pred_y = [claim_cumulative[anchor_x]] + predictions
+            else:
+                pred_x = prediction_periods
+                pred_y = predictions
             fig_predictions.add_trace(go.Scatter(
-                x=prediction_periods,
-                y=predictions,
+                x=pred_x,
+                y=pred_y,
                 mode='lines+markers',
                 name='Model Predictions',
                 line=dict(color='red', width=2, dash='dash'),
@@ -1323,10 +1328,9 @@ def main():
                                 else:
                                     pred_increment = make_sklearn_predictions(st.session_state.model, input_seq)
                                 
-                                # Convert back to original scale
-                                pred_increment_orig = st.session_state.scaler.inverse_transform(
-                                    pred_increment.reshape(-1, 1)
-                                ).flatten()[0]
+                                # Convert predicted increment back to dollar scale correctly
+                                data_range = (st.session_state.scaler.data_max_[0] - st.session_state.scaler.data_min_[0])
+                                pred_increment_orig = (pred_increment.flatten()[0]) * data_range
                                 
                                 # Add the predicted increment to the previous cumulative payment
                                 previous_cumulative = claim_cumulative[-2] if len(claim_cumulative) > 1 else 0

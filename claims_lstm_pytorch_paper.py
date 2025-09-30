@@ -334,7 +334,7 @@ def train_model(
 
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
-        st.write(f"Epoch {epoch+1}/{epochs} - train {train_loss:.5f} - val {val_loss:.5f} - {time.time()-t0:.1f}s")
+        #st.write(f"Epoch {epoch+1}/{epochs} - train {train_loss:.5f} - val {val_loss:.5f} - {time.time()-t0:.1f}s")
 
         if val_loss < best_val - 1e-6:
             best_val = val_loss
