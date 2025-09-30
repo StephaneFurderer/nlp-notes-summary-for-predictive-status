@@ -40,12 +40,14 @@ def filter_data_for_lstm_training(df_periods,evaluation_date:str='2025-09-30',cl
     df_periods = df_periods[df_periods['period_end_date']<=pd.to_datetime(evaluation_date)]
     return df_periods
 
+
+
+df_periods = filter_data_for_lstm_training(df_periods,evaluation_date = evaluation_date)
+
 # Step 1: Data Preview
 st.header("Step 1: Your Data")
 st.write(f"**Shape:** {df_periods.shape}")
 st.write(f"**unique claims:** {df_periods['clmNum'].nunique()}")
-
-df_periods = filter_data_for_lstm_training(df_periods,evaluation_date = evaluation_date)
 
 with st.expander("Data Preview", expanded=False):
     st.dataframe(df_periods.head(20))
@@ -135,7 +137,7 @@ required_columns = {"clmStatus", "period", "Y"}
 if 'df_train' in locals() and isinstance(df_train, pd.DataFrame) and required_columns.issubset(df_train.columns):
     fig = go.Figure()
     for status in df_train["clmStatus"].unique():
-        status_df = df_train[df_train["clmStatus"] == status]
+        status_df = df_train[df_train["clmStatus"] == status].sort_values(["clmNum","period"])
         fig.add_trace(go.Scatter(
             x=status_df["period"],
             y=status_df["Y"],
