@@ -487,6 +487,13 @@ def compute_periods_data(dfs, extraction_date, period_func=None):
             # retrive the features from the original dataframe to be included in the LSTM model
             periods = periods.merge(df[['clmNum','clmCause','clmStatus']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
             periods['source'] = key
+            periods = periods.sort_values(['clmNum','period'])
+            # recompute all the cumulative amounts
+            periods['paid_cumsum'] = periods.groupby('clmNum')['paid'].cumsum()
+            periods['expense_cumsum'] = periods.groupby('clmNum')['expense'].cumsum()
+            periods['recovery_cumsum'] = periods.groupby('clmNum')['recovery'].cumsum()
+            periods['reserve_cumsum'] = periods.groupby('clmNum')['reserve'].cumsum()
+            periods['incurred_cumsum'] = periods.groupby('clmNum')['incurred'].cumsum()
             period_dfs.append(periods)
             save_periods_data(extraction_date, periods, name=key+'_to_periods')
     if not period_dfs:

@@ -21,12 +21,17 @@ from helpers.functions.CONST import BASE_DATA_DIR
 import os
 extraction_date = "2025-09-21"
 df_periods = pd.read_parquet(os.path.join(BASE_DATA_DIR, extraction_date,"closed_txn_to_periods.parquet"))
-# This would be called with your closed claims dataframe
-df_periods['clmStatus'] = df_periods['clmStatus'].str.replace(' ', '')
-df_periods['clmCause'] = df_periods['clmCause'].str.replace(' ', '')
-# filtering the data to only include claims that are closed and part of slip and fall claims
-df_periods = df_periods[df_periods['clmCause'].isin(['ABB_SLIP_&_FALL'])]
-df_periods = df_periods[df_periods['clmStatus'].isin(['CLOSED','PAID','DENIED'])]
+
+def filter_data_for_lstm_training(df_periods,evaluation_date:str='2025-09-30',clmCause:str='ABB_SLIP_&_FALL',clmStatus:str=['CLOSED','PAID','DENIED']):
+    """ Filter closed claims for LSTM training """
+    # remove blank spaces from clmStatus and clmCause
+    df_periods['clmStatus'] = df_periods['clmStatus'].str.replace(' ', '')
+    df_periods['clmCause'] = df_periods['clmCause'].str.replace(' ', '')
+    # filtering the data to only include claims that are closed and part of slip and fall claims
+    df_periods = df_periods[df_periods['clmCause'].isin([clmCause])]
+    df_periods = df_periods[df_periods['clmStatus'].isin([clmStatus])]
+    df_periods = df_periods[df_periods['period_end_date']<=pd.to_datetime(evaluation_date)]
+    return df_periods
 
 # Step 1: Data Preview
 st.header("Step 1: Your Data")
