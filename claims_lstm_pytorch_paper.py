@@ -431,6 +431,35 @@ def main():
         st.write({"claims": int(num_claims), "horizon": HORIZON_N})
         st.dataframe(df_flat.head(10))
 
+        # Payment frequency distribution
+        n_payments_series = df_flat['n_payments'].value_counts().sort_index()
+        fig_freq = go.Figure(data=[go.Bar(x=n_payments_series.index, y=n_payments_series.values, name='Payment Count')])
+        fig_freq.update_layout(title='Payment Frequency Distribution', xaxis_title='Number of Payments', yaxis_title='Count')
+        st.plotly_chart(fig_freq, use_container_width=True)
+
+        # Incremental payment distribution (non-zero)
+        pay_cols = [f'payment_period_{i}' for i in range(HORIZON_N)]
+        all_incs = df_flat[pay_cols].to_numpy().flatten()
+        nonzero_incs = all_incs[all_incs != 0]
+        fig_inc = go.Figure(data=[go.Histogram(x=nonzero_incs, nbinsx=60)])
+        fig_inc.update_layout(title='Incremental Payment Distribution (Non-zero)', xaxis_title='Amount', yaxis_title='Frequency')
+        st.plotly_chart(fig_inc, use_container_width=True)
+
+        # Payment timing distribution (first payment period among paid claims)
+        paid_claims = df_flat[df_flat['n_payments'] > 0]
+        fig_time = go.Figure(data=[go.Histogram(x=paid_claims['first_payment_period'], nbinsx=20)])
+        fig_time.update_layout(title='First Payment Timing Distribution', xaxis_title='Period', yaxis_title='Count')
+        st.plotly_chart(fig_time, use_container_width=True)
+
+        # Sample claims cumulative payments
+        cum_cols = [f'cumulative_period_{i}' for i in range(HORIZON_N)]
+        sample = df_flat.sample(min(10, len(df_flat)), random_state=42)
+        fig_cum = go.Figure()
+        for _, r in sample.iterrows():
+            fig_cum.add_trace(go.Scatter(x=list(range(HORIZON_N)), y=[r[c] for c in cum_cols], mode='lines', name=f"Claim {int(r['claim_id'])}", opacity=0.6))
+        fig_cum.update_layout(title='Sample Claims (Cumulative Payments)', xaxis_title='Period', yaxis_title='Cumulative Amount')
+        st.plotly_chart(fig_cum, use_container_width=True)
+
     with tab2:
         st.write("Standardization μ, σ computed on train non-zero increments")
         st.write({"mu": float(mu), "sigma": float(sigma)})
@@ -549,6 +578,42 @@ def main():
                 'sum_expected': float(np.sum(expected_inc)),
                 'nonzero_prob_mean': float(np.mean(p_hat)),
             })
+
+            # Actual vs Predicted cumulative
+            cum_cols = [f'cumulative_period_{i}' for i in range(HORIZON_N)]
+            actual_cum = df_flat[df_flat['claim_id'] == selected_id][cum_cols].iloc[0].to_numpy(dtype=float)
+            pred_cum = np.concatenate([[0.0], np.cumsum(expected_inc)])
+            fig_ap = go.Figure()
+            fig_ap.add_trace(go.Scatter(x=np.arange(HORIZON_N), y=actual_cum, mode='lines+markers', name='Actual Cumulative'))
+            fig_ap.add_trace(go.Scatter(x=np.arange(HORIZON_N), y=pred_cum, mode='lines+markers', name='Predicted Cumulative'))
+            fig_ap.update_layout(title='Actual vs Predicted Cumulative', xaxis_title='Period', yaxis_title='Amount')
+            st.plotly_chart(fig_ap, use_container_width=True)
+
+            # Over/Under reserved scatter for all val claims at final period
+            with torch.no_grad():
+                all_pred_final, all_actual_final, claim_ids = [], [], []
+                for i, cid in enumerate(val_claim_ids):
+                    inc_feat = inc_val_std[i, :T]
+                    occ_feat = occ_val[i, :T]
+                    obs_feat = obs_val[i, :T]
+                    X_i = np.stack([inc_feat, occ_feat, j_over_n[:T], obs_feat], axis=-1).astype(np.float32)[None, ...]
+                    X_ti = torch.from_numpy(X_i).to(device)
+                    yhs, ph = m(X_ti)
+                    yhs = yhs.cpu().numpy()[0]
+                    ph = ph.cpu().numpy()[0]
+                    exp_inc_i = ph * (yhs * sigma + mu)
+                    pred_final = float(np.sum(exp_inc_i))
+                    actual_final = float(df_flat[df_flat['claim_id'] == cid][cum_cols].iloc[0].to_numpy(dtype=float)[-1])
+                    all_pred_final.append(pred_final)
+                    all_actual_final.append(actual_final)
+                    claim_ids.append(int(cid))
+            fig_sc = go.Figure()
+            fig_sc.add_trace(go.Scatter(x=all_actual_final, y=all_pred_final, mode='markers', text=claim_ids, name='Claims'))
+            min_v = float(min(all_actual_final + all_pred_final))
+            max_v = float(max(all_actual_final + all_pred_final))
+            fig_sc.add_trace(go.Scatter(x=[min_v, max_v], y=[min_v, max_v], mode='lines', name='Perfect', line=dict(color='red', dash='dash')))
+            fig_sc.update_layout(title='Final Cumulative: Actual vs Predicted', xaxis_title='Actual', yaxis_title='Predicted')
+            st.plotly_chart(fig_sc, use_container_width=True)
 
 
 if __name__ == "__main__":
