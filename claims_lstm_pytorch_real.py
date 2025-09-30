@@ -36,55 +36,6 @@ if not PYTORCH_AVAILABLE:
     from sklearn.linear_model import LinearRegression
     from sklearn.ensemble import RandomForestRegressor
 
-@st.cache_data
-def load_claims_data():
-    """Load the pre-generated claims data with per-period probabilities"""
-    # Find the most recent claims data file
-    from helpers.functions.CONST import BASE_DATA_DIR
-    import os
-    extraction_date = "2025-09-21"
-    df_periods = pd.read_parquet(os.path.join(BASE_DATA_DIR, extraction_date,"closed_txn_to_periods.parquet"))
-    # This would be called with your closed claims dataframe
-
-
-    # Step 1: Data Preview
-    st.header("Step 1: Your Data")
-    st.write(f"**Shape:** {df_periods.shape}")
-    st.write("**Columns:**", list(df_periods.columns))
-
-    with st.expander("Data Preview", expanded=False):
-        st.dataframe(df_periods.head(20))
-
-    # Step 2: Configure LSTM sequence preparation
-    st.header("Step 2: Configure LSTM Sequences")
-
-    claim_cause_col = 'clmCause'
-    claim_id_col = 'clmNum'
-    period_col = 'period'
-    payment_col = 'paid'
-    expense_col = 'expense'
-    status_col = 'clmStatus'
-    #csv_files = glob.glob("claims_data_period_flattened_*.csv")
-    # if not csv_files:
-    #     st.error("No per-period claims data files found. Please run generate_claims_data_period.py first.")
-    #     return None, None
-    
-    # Get the most recent file
-    # latest_file = max(csv_files, key=lambda x: x.split('_')[-1].split('.')[0])
-    
-    # Load the data
-    # df = pd.read_csv(latest_file)
-    
-    # Load metadata
-    # metadata_files = glob.glob("claims_metadata_period_*.json")
-    # if metadata_files:
-    #     latest_metadata = max(metadata_files, key=lambda x: x.split('_')[-1].split('.')[0])
-    #     with open(latest_metadata, 'r') as f:
-    #         metadata = json.load(f)
-    # else:
-    #     metadata = None
-    
-    return df_periods, None
 
 def flatten_claims_periods(
     df_periods: pd.DataFrame,
@@ -195,6 +146,59 @@ def flatten_claims_periods(
     df_flat['last_payment_period'] = df_flat['last_payment_period'].astype(int)
 
     return df_flat
+
+
+
+@st.cache_data
+def load_claims_data():
+    """Load the pre-generated claims data with per-period probabilities"""
+    # Find the most recent claims data file
+    from helpers.functions.CONST import BASE_DATA_DIR
+    import os
+    extraction_date = "2025-09-21"
+    df_periods = flatten_claims_periods(pd.read_parquet(os.path.join(BASE_DATA_DIR, extraction_date,"closed_txn_to_periods.parquet")))
+    # This would be called with your closed claims dataframe
+
+
+    # Step 1: Data Preview
+    st.header("Step 1: Your Data")
+    st.write(f"**Shape:** {df_periods.shape}")
+    st.write("**Columns:**", list(df_periods.columns))
+
+    with st.expander("Data Preview", expanded=False):
+        st.dataframe(df_periods.head(20))
+
+    # Step 2: Configure LSTM sequence preparation
+    st.header("Step 2: Configure LSTM Sequences")
+
+    claim_cause_col = 'clmCause'
+    claim_id_col = 'clmNum'
+    period_col = 'period'
+    payment_col = 'paid'
+    expense_col = 'expense'
+    status_col = 'clmStatus'
+    #csv_files = glob.glob("claims_data_period_flattened_*.csv")
+    # if not csv_files:
+    #     st.error("No per-period claims data files found. Please run generate_claims_data_period.py first.")
+    #     return None, None
+    
+    # Get the most recent file
+    # latest_file = max(csv_files, key=lambda x: x.split('_')[-1].split('.')[0])
+    
+    # Load the data
+    # df = pd.read_csv(latest_file)
+    
+    # Load metadata
+    # metadata_files = glob.glob("claims_metadata_period_*.json")
+    # if metadata_files:
+    #     latest_metadata = max(metadata_files, key=lambda x: x.split('_')[-1].split('.')[0])
+    #     with open(latest_metadata, 'r') as f:
+    #         metadata = json.load(f)
+    # else:
+    #     metadata = None
+    
+    return df_periods, None
+
 
 def create_lstm_dataset(sequences, lookback=10):
     """Convert sequences to LSTM format - predicting payment increments"""
