@@ -281,19 +281,56 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded"
     )
-
+    
+    # Custom CSS
+    st.markdown("""
+    <style>
+        .main-header {
+            font-size: 2.5rem;
+            color: #1f77b4;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .section-header {
+            font-size: 1.5rem;
+            color: #2e8b57;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+        .metric-card {
+            background-color: #f0f2f6;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem 0;
+        }
+        .info-box {
+            background-color: #e8f4fd;
+            border-left: 4px solid #1f77b4;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Header
     st.markdown('<h1 class="main-header">🏥 Insurance Claims LSTM - Real Data</h1>', unsafe_allow_html=True)
-    st.markdown("Per-period payment modeling on real claims data (simple LSTM)")
-
+    st.markdown("Per-period payment probabilities with PyTorch LSTM on real claims data")
+    
+    # Load data
     with st.spinner("Loading claims data..."):
         claims_df, metadata = load_claims_data()
+    
     if claims_df is None:
         st.stop()
-
+    
+    # Sidebar parameters
     st.sidebar.header("🎛️ Model Parameters")
+    
     lookback = st.sidebar.slider("LSTM Lookback Window", 5, 30, 15, 5)
     train_split = st.sidebar.slider("Training Split", 0.6, 0.9, 0.8, 0.05)
-
+    
+    # Model selection
+    st.sidebar.subheader("🤖 Model Selection")
     if PYTORCH_AVAILABLE:
         model_type = st.sidebar.selectbox(
             "Model Type",
@@ -306,7 +343,8 @@ def main():
             "Model Type",
             ["Linear Regression", "Random Forest"]
         )
-
+    
+    # Model-specific parameters
     if model_type == "LSTM (PyTorch)" and PYTORCH_AVAILABLE:
         st.sidebar.subheader("🧠 LSTM Parameters")
         hidden_size = st.sidebar.slider("Hidden Size", 25, 200, 50, 25)
@@ -315,6 +353,7 @@ def main():
         epochs = st.sidebar.slider("Epochs", 10, 200, 100, 10)
         batch_size = st.sidebar.slider("Batch Size", 16, 128, 32, 16)
         learning_rate = st.sidebar.slider("Learning Rate", 0.0001, 0.01, 0.001, 0.0001)
+        
         model_params = {
             'hidden_size': hidden_size,
             'num_layers': num_layers,
@@ -329,10 +368,14 @@ def main():
         model_params = {'n_estimators': n_estimators, 'max_depth': max_depth}
     else:
         model_params = {}
-
+    
+    # Display data info
     st.markdown('<h2 class="section-header">📊 Claims Data Summary</h2>', unsafe_allow_html=True)
+    
+    # Extract cumulative payments from columns
     cumulative_cols = [col for col in claims_df.columns if col.startswith('cumulative_period_')]
     n_periods = len(cumulative_cols)
+    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Claims", f"{len(claims_df):,}")
@@ -342,124 +385,499 @@ def main():
         st.metric("Claims with Payments", f"{(claims_df['total_payments'] > 0).sum():,}")
     with col4:
         st.metric("Avg Total Payment", f"${claims_df['total_payments'].mean():,.0f}")
-
-    # Data Preparation (same as simple app)
-    sequences = []
-    for _, row in claims_df.iterrows():
-        cumulative_payments = [row[col] for col in cumulative_cols]
-        sequences.append(cumulative_payments)
-    scaler = MinMaxScaler()
-    all_cumulative_values = np.array([val for seq in sequences for val in seq]).reshape(-1, 1)
-    scaler.fit(all_cumulative_values)
-    sequences_scaled = []
-    for seq in sequences:
-        scaled_seq = scaler.transform(np.array(seq).reshape(-1, 1)).flatten()
-        sequences_scaled.append(scaled_seq)
-    X, y = create_lstm_dataset(sequences_scaled, lookback)
-    X = X.reshape(X.shape[0], X.shape[1], 1)
-    split_idx = int(train_split * len(X))
-    X_train, X_test = X[:split_idx], X[split_idx:]
-    y_train, y_test = y[:split_idx], y[split_idx:]
-    val_split = int(0.8 * len(X_train))
-    X_train_final, X_val = X_train[:val_split], X_train[val_split:]
-    y_train_final, y_val = y_train[:val_split], y_train[val_split:]
-
-    st.session_state.X_train = X_train_final
-    st.session_state.X_val = X_val
-    st.session_state.X_test = X_test
-    st.session_state.y_train = y_train_final
-    st.session_state.y_val = y_val
-    st.session_state.y_test = y_test
-    st.session_state.scaler = scaler
-    st.session_state.train_split = train_split
-
-    # Train/Save/Load UI mirrors the simple app
-    st.markdown('<h3 class="section-header">🤖 Model Training</h3>', unsafe_allow_html=True)
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.subheader("🚀 Train New Model")
-        if st.button("🚀 Train Model", type="primary"):
-            with st.spinner("Training model..."):
-                model = build_model(model_type, lookback, **model_params)
-                if model_type == "LSTM (PyTorch)" and PYTORCH_AVAILABLE:
-                    history = train_pytorch_model(
-                        model,
-                        st.session_state.X_train,
-                        st.session_state.y_train,
-                        st.session_state.X_val,
-                        st.session_state.y_val,
-                        epochs=model_params.get('epochs', 100),
-                        batch_size=model_params.get('batch_size', 32),
-                        learning_rate=model_params.get('learning_rate', 0.001)
-                    )
-                else:
-                    history = train_sklearn_model(
-                        model,
-                        st.session_state.X_train,
-                        st.session_state.y_train
-                    )
-                st.session_state.model = model
-                st.session_state.history = history
-                st.session_state.model_trained = True
-                st.session_state.model_type = model_type
-                st.session_state.model_params = model_params
-                st.success("Model trained successfully!")
-    with col2:
-        st.subheader("💾 Save Model")
-        if 'model_trained' in st.session_state:
-            if st.button("💾 Save Current Model"):
-                try:
-                    model_path, metadata_path = save_model(
-                        st.session_state.model,
-                        st.session_state.model_type,
-                        st.session_state.model_params,
-                        st.session_state.scaler,
-                        lookback,
-                        train_split
-                    )
-                    st.success(f"Model saved successfully!")
-                    st.write(f"Saved to: {model_path}")
-                except Exception as e:
-                    st.error(f"Error saving model: {str(e)}")
-        else:
-            st.info("Train a model first to save it")
-
-    # Predictions + Analysis identical to the simple app
-    st.markdown('<h3 class="section-header">🎯 Predictions</h3>', unsafe_allow_html=True)
-    if 'model_trained' in st.session_state:
-        if st.session_state.model_type == "LSTM (PyTorch)" and PYTORCH_AVAILABLE:
-            y_pred = make_pytorch_predictions(st.session_state.model, st.session_state.X_test)
-        else:
-            y_pred = make_sklearn_predictions(st.session_state.model, st.session_state.X_test)
-        mse = mean_squared_error(st.session_state.y_test, y_pred)
-        mae = mean_absolute_error(st.session_state.y_test, y_pred)
-        rmse = np.sqrt(mse)
-        col1, col2, col3 = st.columns(3)
+    
+    # Tab layout
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📈 Data Overview", 
+        "🔧 Data Preparation", 
+        "🤖 Model Training", 
+        "🎯 Predictions", 
+        "📊 Analysis",
+        "🔍 Individual Claims"
+    ])
+    
+    with tab1:
+        st.markdown('<h3 class="section-header">📈 Claims Data Overview</h3>', unsafe_allow_html=True)
+        
+        # Payment frequency distribution
+        fig1 = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=(
+                "Payment Frequency Distribution", 
+                "Total Payment Distribution",
+                "Sample Claims (Cumulative Payments)",
+                "Payment Timing Distribution"
+            )
+        )
+        
+        # Payment frequency
+        payment_counts = claims_df['n_payments'].value_counts().sort_index()
+        fig1.add_trace(go.Bar(
+            x=payment_counts.index,
+            y=payment_counts.values,
+            name="Payment Count",
+            marker_color='lightblue'
+        ), row=1, col=1)
+        
+        # Total payment distribution (log scale)
+        fig1.add_trace(go.Histogram(
+            x=claims_df[claims_df['total_payments'] > 0]['total_payments'],
+            nbinsx=50,
+            name="Total Payments",
+            marker_color='lightgreen'
+        ), row=1, col=2)
+        
+        # Sample claims
+        sample_claims = claims_df.sample(min(10, len(claims_df)))
+        for i, (_, claim) in enumerate(sample_claims.iterrows()):
+            cumulative_payments = [claim[col] for col in cumulative_cols]
+            periods = list(range(len(cumulative_payments)))
+            
+            fig1.add_trace(go.Scatter(
+                x=periods,
+                y=cumulative_payments,
+                mode='lines',
+                name=f"Claim {claim['claim_id']}",
+                showlegend=False,
+                opacity=0.7
+            ), row=2, col=1)
+        
+        # Payment timing
+        first_payments = claims_df[claims_df['first_payment_period'] < n_periods]['first_payment_period']
+        fig1.add_trace(go.Histogram(
+            x=first_payments,
+            nbinsx=20,
+            name="First Payment Period",
+            marker_color='orange'
+        ), row=2, col=2)
+        
+        fig1.update_layout(height=800, showlegend=False)
+        st.plotly_chart(fig1, use_container_width=True)
+        
+        # Statistics
+        col1, col2 = st.columns(2)
         with col1:
-            st.metric("MSE", f"{mse:.6f}")
+            st.markdown("**Payment Statistics:**")
+            st.write(f"• Claims with no payments: {(claims_df['n_payments'] == 0).sum():,} ({(claims_df['n_payments'] == 0).mean()*100:.1f}%)")
+            st.write(f"• Claims with 1-10 payments: {((claims_df['n_payments'] >= 1) & (claims_df['n_payments'] <= 10)).sum():,} ({((claims_df['n_payments'] >= 1) & (claims_df['n_payments'] <= 10)).mean()*100:.1f}%)")
+            st.write(f"• Claims with 11-30 payments: {((claims_df['n_payments'] >= 11) & (claims_df['n_payments'] <= 30)).sum():,} ({((claims_df['n_payments'] >= 11) & (claims_df['n_payments'] <= 30)).mean()*100:.1f}%)")
+            st.write(f"• Claims with 31+ payments: {(claims_df['n_payments'] >= 31).sum():,} ({(claims_df['n_payments'] >= 31).mean()*100:.1f}%)")
+            st.write(f"• Average payments per claim: {claims_df['n_payments'].mean():.2f}")
+        
         with col2:
-            st.metric("MAE", f"{mae:.6f}")
-        with col3:
-            st.metric("RMSE", f"{rmse:.6f}")
-        data_range = (st.session_state.scaler.data_max_[0] - st.session_state.scaler.data_min_[0])
-        y_test_orig = (st.session_state.y_test * data_range).flatten()
-        y_pred_orig = (y_pred * data_range).flatten()
-        fig4 = go.Figure()
-        n_samples = min(100, len(y_test_orig))
-        sample_idx = np.random.choice(len(y_test_orig), n_samples, replace=False)
-        fig4.add_trace(go.Scatter(
-            x=y_test_orig[sample_idx],
-            y=y_pred_orig[sample_idx],
-            mode='markers',
-            name='Predictions vs Actual',
-            marker=dict(color='blue', size=8, opacity=0.6),
-            hovertemplate='Actual: $%{x:,.0f}<br>Predicted: $%{y:,.0f}<extra></extra>'
+            st.markdown("**Payment Amount Statistics:**")
+            paid_claims = claims_df[claims_df['total_payments'] > 0]
+            st.write(f"• Mean payment: ${paid_claims['total_payments'].mean():,.0f}")
+            st.write(f"• Median payment: ${paid_claims['total_payments'].median():,.0f}")
+            st.write(f"• 95th percentile: ${paid_claims['total_payments'].quantile(0.95):,.0f}")
+            st.write(f"• Max payment: ${paid_claims['total_payments'].max():,.0f}")
+    
+    with tab2:
+        st.markdown('<h3 class="section-header">🔧 Data Preparation</h3>', unsafe_allow_html=True)
+        
+        # Prepare sequences from cumulative payments
+        sequences = []
+        for _, row in claims_df.iterrows():
+            cumulative_payments = [row[col] for col in cumulative_cols]
+            sequences.append(cumulative_payments)
+        
+        # Scale the data
+        # Fit ONE scaler across all cumulative values for consistency
+        scaler = MinMaxScaler()
+        all_cumulative_values = np.array([val for seq in sequences for val in seq]).reshape(-1, 1)
+        scaler.fit(all_cumulative_values)
+        sequences_scaled = []
+        for seq in sequences:
+            scaled_seq = scaler.transform(np.array(seq).reshape(-1, 1)).flatten()
+            sequences_scaled.append(scaled_seq)
+        
+        # Create supervised learning dataset
+        X, y = create_lstm_dataset(sequences_scaled, lookback)
+        X = X.reshape(X.shape[0], X.shape[1], 1)  # Reshape for LSTM
+        
+        # Split data
+        split_idx = int(train_split * len(X))
+        X_train, X_test = X[:split_idx], X[split_idx:]
+        y_train, y_test = y[:split_idx], y[split_idx:]
+        
+        # Further split training into train/validation
+        val_split = int(0.8 * len(X_train))
+        X_train_final, X_val = X_train[:val_split], X_train[val_split:]
+        y_train_final, y_val = y_train[:val_split], y_train[val_split:]
+        
+        # Store in session state
+        st.session_state.X_train = X_train_final
+        st.session_state.X_val = X_val
+        st.session_state.X_test = X_test
+        st.session_state.y_train = y_train_final
+        st.session_state.y_val = y_val
+        st.session_state.y_test = y_test
+        st.session_state.scaler = scaler
+        st.session_state.train_split = train_split
+        
+        # Store test claim IDs for individual analysis
+        # Calculate which claims are in test set based on the split
+        total_claims = len(claims_df)
+        train_claim_count = int(total_claims * train_split)
+        test_claim_ids = set(claims_df['claim_id'].iloc[train_claim_count:].tolist())
+        st.session_state.test_claim_ids = test_claim_ids
+        
+        # Display dataset info
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Dataset Information:**")
+            st.write(f"• Total sequences: {len(X):,}")
+            st.write(f"• Training samples: {len(X_train_final):,}")
+            st.write(f"• Validation samples: {len(X_val):,}")
+            st.write(f"• Test samples: {len(X_test):,}")
+            st.write(f"• Lookback window: {lookback}")
+            st.write(f"• Features per timestep: 1")
+        
+        with col2:
+            st.markdown("**Data Scaling:**")
+            st.write(f"• Scaled to range: [0, 1]")
+            st.write(f"• Original min: ${scaler.data_min_[0]:,.0f}")
+            st.write(f"• Original max: ${scaler.data_max_[0]:,.0f}")
+            st.write(f"• Scaled min: 0.0")
+            st.write(f"• Scaled max: 1.0")
+    
+    with tab3:
+        st.markdown('<h3 class="section-header">🤖 Model Training</h3>', unsafe_allow_html=True)
+        
+        # Model management section
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("🚀 Train New Model")
+            
+            if st.button("🚀 Train Model", type="primary"):
+                with st.spinner("Training model..."):
+                    # Build model
+                    model = build_model(model_type, lookback, **model_params)
+                    
+                    # Train model
+                    if model_type == "LSTM (PyTorch)" and PYTORCH_AVAILABLE:
+                        history = train_pytorch_model(
+                            model, 
+                            st.session_state.X_train, 
+                            st.session_state.y_train,
+                            st.session_state.X_val, 
+                            st.session_state.y_val,
+                            epochs=model_params.get('epochs', 100),
+                            batch_size=model_params.get('batch_size', 32),
+                            learning_rate=model_params.get('learning_rate', 0.001)
+                        )
+                    else:
+                        history = train_sklearn_model(
+                            model, 
+                            st.session_state.X_train, 
+                            st.session_state.y_train
+                        )
+                    
+                    # Store model
+                    st.session_state.model = model
+                    st.session_state.history = history
+                    st.session_state.model_trained = True
+                    st.session_state.model_type = model_type
+                    st.session_state.model_params = model_params
+                    
+                    # Calculate test set accuracy
+                    test_accuracy = calculate_test_set_accuracy(
+                        model, model_type, st.session_state.scaler, 
+                        st.session_state.test_claim_ids, claims_df, 
+                        cumulative_cols, lookback
+                    )
+                    if test_accuracy:
+                        st.session_state.test_predictions_accuracy = test_accuracy
+                    
+                    st.success("Model trained successfully!")
+        
+        with col2:
+            st.subheader("💾 Save Model")
+            
+            if 'model_trained' in st.session_state:
+                if st.button("💾 Save Current Model"):
+                    try:
+                        model_path, metadata_path = save_model(
+                            st.session_state.model,
+                            st.session_state.model_type,
+                            st.session_state.model_params,
+                            st.session_state.scaler,
+                            lookback,
+                            train_split
+                        )
+                        st.success(f"Model saved successfully!")
+                        st.write(f"Saved to: {model_path}")
+                    except Exception as e:
+                        st.error(f"Error saving model: {str(e)}")
+            else:
+                st.info("Train a model first to save it")
+        
+        # Load saved models section
+        st.subheader("📂 Load Saved Models")
+        
+        saved_models = get_saved_models()
+        
+        if saved_models:
+            # Create model selection options
+            model_options = []
+            for model_info in saved_models:
+                timestamp_str = datetime.strptime(model_info['timestamp'], '%Y%m%d_%H%M%S').strftime('%Y-%m-%d %H:%M:%S')
+                option_text = f"{model_info['model_type']} - {timestamp_str} (Lookback: {model_info['lookback']})"
+                model_options.append((option_text, model_info))
+            
+            if model_options:
+                selected_model_text = st.selectbox(
+                    "Select a saved model to load:",
+                    [opt[0] for opt in model_options],
+                    help="Choose from previously saved models"
+                )
+                
+                if st.button("📂 Load Selected Model"):
+                    # Find the selected model info
+                    selected_model_info = None
+                    for option_text, model_info in model_options:
+                        if option_text == selected_model_text:
+                            selected_model_info = model_info
+                            break
+                    
+                    if selected_model_info:
+                        try:
+                            with st.spinner("Loading model..."):
+                                model, metadata, scaler = load_model(
+                                    selected_model_info['model_path'],
+                                    selected_model_info['metadata_path']
+                                )
+                                
+                                # Store loaded model in session state
+                                st.session_state.model = model
+                                st.session_state.history = None  # No training history for loaded models
+                                st.session_state.model_trained = True
+                                st.session_state.model_type = metadata['model_type']
+                                st.session_state.model_params = metadata['model_params']
+                                st.session_state.scaler = scaler
+                                st.session_state.train_split = metadata['train_split']
+                                
+                                # Recalculate test claim IDs and test accuracy for loaded model
+                                total_claims = len(claims_df)
+                                train_claim_count = int(total_claims * metadata['train_split'])
+                                test_claim_ids = set(claims_df['claim_id'].iloc[train_claim_count:].tolist())
+                                st.session_state.test_claim_ids = test_claim_ids
+                                
+                                # Calculate test set accuracy
+                                test_accuracy = calculate_test_set_accuracy(
+                                    model, metadata['model_type'], scaler, 
+                                    test_claim_ids, claims_df, 
+                                    cumulative_cols, metadata['lookback']
+                                )
+                                if test_accuracy:
+                                    st.session_state.test_predictions_accuracy = test_accuracy
+                                
+                                st.success("Model loaded successfully!")
+                                st.write(f"Model Type: {metadata['model_type']}")
+                                st.write(f"Lookback: {metadata['lookback']}")
+                                st.write(f"Train Split: {metadata['train_split']}")
+                                st.write(f"Saved: {datetime.strptime(metadata['timestamp'], '%Y%m%d_%H%M%S').strftime('%Y-%m-%d %H:%M:%S')}")
+                        except Exception as e:
+                            st.error(f"Error loading model: {str(e)}")
+        else:
+            st.info("No saved models found. Train and save a model first.")
+        
+        if 'model_trained' in st.session_state:
+            # Display training history if available
+            if st.session_state.history is not None and model_type == "LSTM (PyTorch)":
+                fig3 = make_subplots(
+                    rows=1, cols=2,
+                    subplot_titles=('Training Loss', 'Validation Loss')
+                )
+                
+                fig3.add_trace(go.Scatter(
+                    y=st.session_state.history['train_loss'],
+                    mode='lines',
+                    name='Training Loss',
+                    line=dict(color='blue')
+                ), row=1, col=1)
+                
+                fig3.add_trace(go.Scatter(
+                    y=st.session_state.history['val_loss'],
+                    mode='lines',
+                    name='Validation Loss',
+                    line=dict(color='red')
+                ), row=1, col=1)
+                
+                fig3.update_layout(height=400)
+                st.plotly_chart(fig3, use_container_width=True)
+            
+            # Model summary
+            st.markdown("**Model Information:**")
+            st.write(f"• Model Type: {st.session_state.model_type}")
+            st.write(f"• Parameters: {model_params}")
+            
+            if model_type == "LSTM (PyTorch)" and PYTORCH_AVAILABLE:
+                st.write(f"• Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
+                st.write(f"• Hidden Size: {model_params.get('hidden_size', 50)}")
+                st.write(f"• Number of Layers: {model_params.get('num_layers', 2)}")
+                st.write(f"• Dropout Rate: {model_params.get('dropout', 0.2)}")
+            elif model_type == "LSTM (PyTorch)" and not PYTORCH_AVAILABLE:
+                st.warning("PyTorch is not available. Please install PyTorch to use LSTM models.")
+    
+    with tab4:
+        st.markdown('<h3 class="section-header">🎯 Predictions</h3>', unsafe_allow_html=True)
+        
+        if 'model_trained' not in st.session_state:
+            st.warning("Please train a model first in the 'Model Training' tab.")
+        else:
+            # Make predictions
+            if st.session_state.model_type == "LSTM (PyTorch)" and PYTORCH_AVAILABLE:
+                y_pred = make_pytorch_predictions(st.session_state.model, st.session_state.X_test)
+            else:
+                y_pred = make_sklearn_predictions(st.session_state.model, st.session_state.X_test)
+            
+            # Calculate metrics
+            mse = mean_squared_error(st.session_state.y_test, y_pred)
+            mae = mean_absolute_error(st.session_state.y_test, y_pred)
+            rmse = np.sqrt(mse)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("MSE", f"{mse:.6f}")
+            with col2:
+                st.metric("MAE", f"{mae:.6f}")
+            with col3:
+                st.metric("RMSE", f"{rmse:.6f}")
+            
+            # Convert increments back to dollar scale correctly (no +min offset)
+            data_range = (st.session_state.scaler.data_max_[0] - st.session_state.scaler.data_min_[0])
+            y_test_orig = (st.session_state.y_test * data_range).flatten()
+            y_pred_orig = (y_pred * data_range).flatten()
+            
+            # Predictions plot
+            fig4 = go.Figure()
+            
+            # Sample of predictions
+            n_samples = min(100, len(y_test_orig))
+            sample_idx = np.random.choice(len(y_test_orig), n_samples, replace=False)
+            
+            fig4.add_trace(go.Scatter(
+                x=y_test_orig[sample_idx],
+                y=y_pred_orig[sample_idx],
+                mode='markers',
+                name='Predictions vs Actual',
+                marker=dict(
+                    color='blue',
+                    size=8,
+                    opacity=0.6
+                ),
+                hovertemplate='Actual: $%{x:,.0f}<br>Predicted: $%{y:,.0f}<extra></extra>'
+            ))
+            
+            # Perfect prediction line
+            min_val = min(y_test_orig.min(), y_pred_orig.min())
+            max_val = max(y_test_orig.max(), y_pred_orig.max())
+            fig4.add_trace(go.Scatter(
+                x=[min_val, max_val],
+                y=[min_val, max_val],
+                mode='lines',
+                name='Perfect Prediction',
+                line=dict(color='red', dash='dash')
+            ))
+            
+            fig4.update_layout(
+                title="Predicted Increment vs Actual Increment",
+                xaxis_title="Actual Increment ($)",
+                yaxis_title="Predicted Increment ($)",
+                height=500
+            )
+            
+            st.plotly_chart(fig4, use_container_width=True)
+    
+    with tab5:
+        st.markdown('<h3 class="section-header">📊 Analysis</h3>', unsafe_allow_html=True)
+        
+        # Claims development patterns
+        st.markdown("**Claims Development Patterns:**")
+        
+        # Group claims by development pattern
+        claims_df['development_pattern'] = 'No Payments'
+        claims_df.loc[claims_df['n_payments'] <= 10, 'development_pattern'] = 'Low Activity (1-10 payments)'
+        claims_df.loc[(claims_df['n_payments'] > 10) & (claims_df['n_payments'] <= 30), 'development_pattern'] = 'Medium Activity (11-30 payments)'
+        claims_df.loc[claims_df['n_payments'] > 30, 'development_pattern'] = 'High Activity (31+ payments)'
+        
+        pattern_counts = claims_df['development_pattern'].value_counts()
+        
+        fig6 = go.Figure()
+        fig6.add_trace(go.Pie(
+            labels=pattern_counts.index,
+            values=pattern_counts.values,
+            hole=0.3
         ))
-        min_val = min(y_test_orig.min(), y_pred_orig.min())
-        max_val = max(y_test_orig.max(), y_pred_orig.max())
-        fig4.add_trace(go.Scatter(x=[min_val, max_val], y=[min_val, max_val], mode='lines', name='Perfect Prediction', line=dict(color='red', dash='dash')))
-        fig4.update_layout(title="Predicted Increment vs Actual Increment", xaxis_title="Actual Increment ($)", yaxis_title="Predicted Increment ($)", height=500)
-        st.plotly_chart(fig4, use_container_width=True)
+        
+        fig6.update_layout(
+            title="Claims Development Patterns",
+            height=400
+        )
+        
+        st.plotly_chart(fig6, use_container_width=True)
+    
+    with tab6:
+        st.markdown('<h3 class="section-header">🔍 Individual Claims Analysis</h3>', unsafe_allow_html=True)
+        
+        # Claim selection
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            available_claim_ids = claims_df['claim_id'].tolist()
+            selected_claim_id = st.selectbox(
+                "Select Claim ID:",
+                available_claim_ids,
+                help="Choose a claim to analyze its lifetime and predictions"
+            )
+        
+        with col2:
+            # Show claim info
+            selected_claim = claims_df[claims_df['claim_id'] == selected_claim_id].iloc[0]
+            st.metric("Total Payments", f"${selected_claim['total_payments']:,.0f}")
+            st.metric("Number of Payments", f"{selected_claim['n_payments']}")
+        
+        # Get claim data
+        claim_cumulative = [selected_claim[col] for col in cumulative_cols]
+        claim_payments = [selected_claim[col.replace('cumulative_period_', 'payment_period_')] for col in cumulative_cols]
+        periods = list(range(len(claim_cumulative)))
+        
+        # Create lifetime visualization
+        fig_lifetime = go.Figure()
+        
+        # Cumulative payments
+        fig_lifetime.add_trace(go.Scatter(
+            x=periods,
+            y=claim_cumulative,
+            mode='lines+markers',
+            name='Cumulative Payments',
+            line=dict(color='blue', width=3),
+            marker=dict(size=6),
+            hovertemplate='Period: %{x}<br>Cumulative: $%{y:,.0f}<extra></extra>'
+        ))
+        
+        # Individual payments (as bars)
+        fig_lifetime.add_trace(go.Bar(
+            x=periods,
+            y=claim_payments,
+            name='Period Payments',
+            marker_color='lightblue',
+            opacity=0.7,
+            hovertemplate='Period: %{x}<br>Payment: $%{y:,.0f}<extra></extra>'
+        ))
+        
+        fig_lifetime.update_layout(
+            title=f"Claim {selected_claim_id} Lifetime Development",
+            xaxis_title="Development Period",
+            yaxis_title="Payment Amount ($)",
+            height=500,
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_lifetime, use_container_width=True)
 
 if __name__ == "__main__":
     main()
