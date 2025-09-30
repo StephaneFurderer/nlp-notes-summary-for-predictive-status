@@ -50,7 +50,7 @@ df_filtered = filter_data_for_lstm_training(df_periods,evaluation_date = evaluat
 # Step 1: Data Preview
 st.header("Step 1: Your Data")
 st.write(f"**Shape:** {df_filtered.shape}")
-st.write(f"**unique claims:** {df_pedf_filteredriods['clmNum'].nunique()}")
+st.write(f"**unique claims:** {df_filtered['clmNum'].nunique()}")
 
 with st.expander("Data Preview", expanded=False):
     st.dataframe(df_filtered)
