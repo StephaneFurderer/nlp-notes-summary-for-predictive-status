@@ -11,6 +11,9 @@ import sys
 import traceback
 from helpers.UI.common import get_shared_state
 from helpers.functions.rnn_data_prep import prepare_lstm_sequences, censor_large_payments, scale_features
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+
 
 st.set_page_config(page_title="LSTM Training Lab", layout="wide")
 st.title("LSTM Training Lab")
@@ -46,3 +49,89 @@ df_periods = filter_data_for_lstm_training(df_periods,evaluation_date = evaluati
 
 with st.expander("Data Preview", expanded=False):
     st.dataframe(df_periods.head(20))
+
+
+def split_data_for_lstm(df_periods, split_ratio: List[float] = [0.6, 0.2, 0.2]):
+    """Split the data into train, val, test based on period_start_date and given ratios."""
+    df = df_periods.sort_values(['clmNum', 'period_start_date']).copy()
+    n = len(df)
+    train_end = int(split_ratio[0] * n)
+    val_end = train_end + int(split_ratio[1] * n)
+    df['dataset_split'] = np.select(
+        [df.index < train_end, df.index < val_end],
+        ['train', 'val'],
+        default='test'
+    )
+    return df
+
+##### Step 2: Data Preparation for LSTM training
+# sort the claims by period_start_date and split into train, val, test with  60/20/20 ratio
+df_periods = split_data_for_lstm(df_periods)
+
+df_periods['Y'] = df_periods['paid']
+
+# scale the data based on the train data
+df_train = df_periods[df_periods['dataset_split']=='train']
+df_train_mean = df_train['Y'].mean()
+df_train_std = df_train['Y'].std()
+df_periods['Y_star'] = (df_periods['Y'] - df_train_mean) / df_train_std
+df_periods['Y_star_cumsum'] = df_periods['Y_star'].cumsum()
+
+with st.expander("Training Data Statistics"):
+    st.write(f"**mean of Y:** {df_train_mean}")
+    st.write(f"**std of Y:** {df_train_std}")
+    st.write(f"**mean of Y_star:** {df_periods['Y_star'].mean()}")
+    st.write(f"**std of Y_star:** {df_periods['Y_star'].std()}")
+
+
+# prepare the sequences from the df_periods
+
+def prepare_X_y(df_periods,set_name:str=['train','val','test']):
+    """Prepare the X and y for the LSTM model for a given set name"""
+    X, y = [], []
+    unique_clmNums = df_periods[df_periods['dataset_split']==set_name]['clmNum'].unique()
+    for i, id in enumerate(unique_clmNums): # iterate over the unique claim numbers
+        data = df_periods[df_periods['clmNum']==id]
+        for i in range(data['period'].max()+1): #if max = 4, iterate from 0 to 4 included
+            X.append(data[data['period']==i]['Y_star_cumsum'].values)
+            y.append(data[data['period']==i]['Y_star'])
+    
+    X = X.reshape(X.shape[0], X.shape[1], 1)
+    return X, y    
+
+X_train, y_train = prepare_X_y(df_periods,'train')
+X_val, y_val = prepare_X_y(df_periods,'val')
+X_test, y_test = prepare_X_y(df_periods,'test')
+
+
+# Show sample sequences
+st.markdown("**Sample Input Sequences:**")
+fig2 = make_subplots(
+    rows=2, cols=2,
+    subplot_titles=("Sequence 1", "Sequence 2", "Sequence 3", "Sequence 4")
+)
+
+for i in range(4):
+    row = i // 2 + 1
+    col = i % 2 + 1
+    
+    sample_seq = X_train[i*100].flatten()
+    
+    fig2.add_trace(go.Scatter(
+        x=list(range(len(sample_seq))),
+        y=sample_seq,
+        mode='lines+markers',
+        name=f'Seq {i+1}',
+        showlegend=False
+    ), row=row, col=col)
+
+fig2.update_layout(
+    title="Sample Input Sequences (Scaled)",
+    height=500
+)
+st.plotly_chart(fig2, use_container_width=True)
+
+
+ # for the LSTM model, we need to reshape the data to [batch_size, sequence_length, 1]
+
+
