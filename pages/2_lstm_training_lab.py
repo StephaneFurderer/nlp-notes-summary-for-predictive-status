@@ -22,10 +22,11 @@ import os
 extraction_date = "2025-09-21"
 df_periods = pd.read_parquet(os.path.join(BASE_DATA_DIR, extraction_date,"closed_txn_to_periods.parquet"))
 # This would be called with your closed claims dataframe
+df_periods['clmStatus'] = df_periods['clmStatus'].str.replace(' ', '')
 
 # filtering the data to only include claims that are closed and part of slip and fall claims
 df_periods = df_periods[df_periods['clmCause'].isin(['ABB_SLIP_&_FALL'])]
-df_periods = df_periods[df_periods['clmStatus'].isin(['CLOSED'])]
+df_periods = df_periods[df_periods['clmStatus'].isin(['CLOSED','PAID','DENIED'])]
 
 # Step 1: Data Preview
 st.header("Step 1: Your Data")
