@@ -88,7 +88,7 @@ with st.expander("Training Data Statistics"):
 
 def prepare_X_y(df_periods,set_name:str=['train','val','test']):
     """Prepare the X and y for the LSTM model for a given set name"""
-    X, y = [], []
+    X, y, statuses = [], [], []
     unique_clmNums = df_periods[df_periods['dataset_split']==set_name]['clmNum'].unique()
     
     for clm_id in unique_clmNums: # iterate over the unique claim numbers
@@ -101,78 +101,78 @@ def prepare_X_y(df_periods,set_name:str=['train','val','test']):
             
             # y: individual payments (target sequence) - shape: [sequence_length] 
             y.append(claim_data['Y_star'].values)
+            
+            # status: claim status (for color coding)
+            statuses.append(claim_data['clmStatus'].iloc[0])  # Take the first status (should be consistent)
     
     # Convert to numpy arrays
     X = np.array(X, dtype=object)  # Use object dtype for variable length sequences
     y = np.array(y, dtype=object)
+    statuses = np.array(statuses)
     
-    return X, y    
+    return X, y, statuses    
 
-X_train, y_train = prepare_X_y(df_periods,'train')
-X_val, y_val = prepare_X_y(df_periods,'val')
-X_test, y_test = prepare_X_y(df_periods,'test')
-
-
-# Show sample sequences
-st.markdown("**Sample Input Sequences (Cumulative Payments):**")
-fig2 = make_subplots(
-    rows=2, cols=2,
-    subplot_titles=("Sequence 1", "Sequence 2", "Sequence 3", "Sequence 4")
-)
-
-for i in range(min(4, len(X_train))):
-    row = i // 2 + 1
-    col = i % 2 + 1
-    
-    sample_seq = X_train[i]  # This is already a 1D array
-    
-    fig2.add_trace(go.Scatter(
-        x=list(range(len(sample_seq))),
-        y=sample_seq,
-        mode='lines+markers',
-        name=f'Claim {i+1}',
-        showlegend=False
-    ), row=row, col=col)
-
-fig2.update_layout(
-    title="Sample Input Sequences (Cumulative Payments)",
-    height=500
-)
-st.plotly_chart(fig2, use_container_width=True)
-
-# Show corresponding target sequences
-st.markdown("**Sample Target Sequences (Individual Payments):**")
-fig3 = make_subplots(
-    rows=2, cols=2,
-    subplot_titles=("Target 1", "Target 2", "Target 3", "Target 4")
-)
-
-for i in range(min(4, len(y_train))):
-    row = i // 2 + 1
-    col = i % 2 + 1
-    
-    sample_target = y_train[i]  # This is already a 1D array
-    
-    fig3.add_trace(go.Scatter(
-        x=list(range(len(sample_target))),
-        y=sample_target,
-        mode='lines+markers',
-        name=f'Target {i+1}',
-        showlegend=False
-    ), row=row, col=col)
-
-fig3.update_layout(
-    title="Sample Target Sequences (Individual Payments)",
-    height=500
-)
-st.plotly_chart(fig3, use_container_width=True)
+X_train, y_train, status_train = prepare_X_y(df_periods,'train')
+X_val, y_val, status_val = prepare_X_y(df_periods,'val')
+X_test, y_test, status_test = prepare_X_y(df_periods,'test')
 
 # Show sequence statistics
 st.markdown("**Sequence Statistics:**")
 st.write(f"Number of training sequences: {len(X_train)}")
-st.write(f"Sequence lengths: {[len(seq) for seq in X_train[:10]]}")  # Show first 10 lengths
+st.write(f"Sequence lengths (first 10): {[len(seq) for seq in X_train[:10]]}")
 st.write(f"Average sequence length: {np.mean([len(seq) for seq in X_train]):.2f}")
 
+# Plot first 100 claims' cumulative payments on the same graph with color coding
+st.markdown("**First 100 Claims - Cumulative Payments (Color-coded by Status):**")
+
+# Create color mapping for claim statuses
+unique_statuses = np.unique(status_train)
+colors = ['red', 'blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+status_colors = {status: colors[i % len(colors)] for i, status in enumerate(unique_statuses)}
+
+fig = go.Figure()
+
+# Plot up to 100 sequences on the same graph with color coding
+for i in range(min(100, len(X_train))):
+    sample_seq = X_train[i]  # This is already a 1D array
+    claim_status = status_train[i]
+    color = status_colors[claim_status]
+    
+    fig.add_trace(go.Scatter(
+        x=list(range(len(sample_seq))),
+        y=sample_seq,
+        mode='lines',
+        name=f'Claim {i+1} ({claim_status})',
+        showlegend=False,
+        opacity=0.6,
+        line=dict(width=1, color=color)
+    ))
+
+# Add legend for status colors
+legend_traces = []
+for status, color in status_colors.items():
+    legend_traces.append(go.Scatter(
+        x=[None], y=[None],
+        mode='lines',
+        name=status,
+        line=dict(color=color, width=3),
+        showlegend=True
+    ))
+
+fig.add_traces(legend_traces)
+
+fig.update_layout(
+    title="First 100 Claims - Cumulative Payment Patterns (Color-coded by Status)",
+    xaxis_title="Period",
+    yaxis_title="Cumulative Payments (Scaled)",
+    height=500
+)
+st.plotly_chart(fig, use_container_width=True)
+
+# Show status distribution
+st.markdown("**Claim Status Distribution:**")
+status_counts = pd.Series(status_train).value_counts()
+st.bar_chart(status_counts)
 
  # for the LSTM model, we need to reshape the data to [batch_size, sequence_length, 1]
 
