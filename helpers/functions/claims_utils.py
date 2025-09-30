@@ -485,7 +485,7 @@ def compute_periods_data(dfs, extraction_date, period_func=None):
         if df is not None and not df.empty:
             periods = period_func(df)
             # retrive the features from the original dataframe to be included in the LSTM model
-            periods = periods.merge(df[['clmNum','clmCause']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
+            periods = periods.merge(df[['clmNum','clmCause','clmStatus']].drop_duplicates().set_index('clmNum'), how='left', on=['clmNum'])
             periods['source'] = key
             period_dfs.append(periods)
             save_periods_data(extraction_date, periods, name=key+'_to_periods')
