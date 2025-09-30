@@ -90,16 +90,22 @@ def prepare_X_y(df_periods,set_name:str=['train','val','test']):
     """Prepare the X and y for the LSTM model for a given set name"""
     X, y = [], []
     unique_clmNums = df_periods[df_periods['dataset_split']==set_name]['clmNum'].unique()
-    for i, id in enumerate(unique_clmNums): # iterate over the unique claim numbers
-        data = df_periods[df_periods['clmNum']==id]
-        for i in range(data['period'].max()+1): #if max = 4, iterate from 0 to 4 included
-            X.append(data[data['period']==i]['Y_star_cumsum'].values)
-            y.append(data[data['period']==i]['Y_star'])
     
-    # Convert lists to numpy arrays before reshaping
-    X = np.array(X)
-    y = np.array(y)
-    X = X.reshape(X.shape[0], X.shape[1], 1)
+    for clm_id in unique_clmNums: # iterate over the unique claim numbers
+        # Get all periods for this claim, sorted by period
+        claim_data = df_periods[df_periods['clmNum']==clm_id].sort_values('period')
+        
+        if len(claim_data) > 1:  # Only include claims with at least 2 periods
+            # X: cumulative payments (input sequence) - shape: [sequence_length]
+            X.append(claim_data['Y_star_cumsum'].values)
+            
+            # y: individual payments (target sequence) - shape: [sequence_length] 
+            y.append(claim_data['Y_star'].values)
+    
+    # Convert to numpy arrays
+    X = np.array(X, dtype=object)  # Use object dtype for variable length sequences
+    y = np.array(y, dtype=object)
+    
     return X, y    
 
 X_train, y_train = prepare_X_y(df_periods,'train')
@@ -108,31 +114,64 @@ X_test, y_test = prepare_X_y(df_periods,'test')
 
 
 # Show sample sequences
-st.markdown("**Sample Input Sequences:**")
+st.markdown("**Sample Input Sequences (Cumulative Payments):**")
 fig2 = make_subplots(
     rows=2, cols=2,
     subplot_titles=("Sequence 1", "Sequence 2", "Sequence 3", "Sequence 4")
 )
 
-for i in range(4):
+for i in range(min(4, len(X_train))):
     row = i // 2 + 1
     col = i % 2 + 1
     
-    sample_seq = X_train[i*100].flatten()
+    sample_seq = X_train[i]  # This is already a 1D array
     
     fig2.add_trace(go.Scatter(
         x=list(range(len(sample_seq))),
         y=sample_seq,
         mode='lines+markers',
-        name=f'Seq {i+1}',
+        name=f'Claim {i+1}',
         showlegend=False
     ), row=row, col=col)
 
 fig2.update_layout(
-    title="Sample Input Sequences (Scaled)",
+    title="Sample Input Sequences (Cumulative Payments)",
     height=500
 )
 st.plotly_chart(fig2, use_container_width=True)
+
+# Show corresponding target sequences
+st.markdown("**Sample Target Sequences (Individual Payments):**")
+fig3 = make_subplots(
+    rows=2, cols=2,
+    subplot_titles=("Target 1", "Target 2", "Target 3", "Target 4")
+)
+
+for i in range(min(4, len(y_train))):
+    row = i // 2 + 1
+    col = i % 2 + 1
+    
+    sample_target = y_train[i]  # This is already a 1D array
+    
+    fig3.add_trace(go.Scatter(
+        x=list(range(len(sample_target))),
+        y=sample_target,
+        mode='lines+markers',
+        name=f'Target {i+1}',
+        showlegend=False
+    ), row=row, col=col)
+
+fig3.update_layout(
+    title="Sample Target Sequences (Individual Payments)",
+    height=500
+)
+st.plotly_chart(fig3, use_container_width=True)
+
+# Show sequence statistics
+st.markdown("**Sequence Statistics:**")
+st.write(f"Number of training sequences: {len(X_train)}")
+st.write(f"Sequence lengths: {[len(seq) for seq in X_train[:10]]}")  # Show first 10 lengths
+st.write(f"Average sequence length: {np.mean([len(seq) for seq in X_train]):.2f}")
 
 
  # for the LSTM model, we need to reshape the data to [batch_size, sequence_length, 1]
