@@ -7,8 +7,14 @@ import os
 # SAVING THE MODEL
 # ============================================================================
 
-def save_claims_model(model, scaler, train_dataset, test_metrics, hyperparameters, 
-                      model_name="lstm_claims_reserving"):
+def save_claims_model(
+    model: torch.nn.Module,
+    scaler: object,
+    train_dataset: object,
+    test_metrics: dict,
+    hyperparameters: dict,
+    model_name: str = "lstm_claims_reserving"
+) -> str:
     """
     Save a complete PyTorch model with all necessary metadata
     
@@ -51,12 +57,13 @@ def save_claims_model(model, scaler, train_dataset, test_metrics, hyperparameter
         
         # Model architecture
         'architecture': {
-            'model_type': model.__class__.__name__,
+            'model_class': model.__class__.__name__,  # e.g., 'ClaimReservingLSTM_v1'
             'input_size': hyperparameters.get('input_size', 1),
             'hidden_size': hyperparameters.get('hidden_size', 64),
             'num_layers': hyperparameters.get('num_layers', 2),
             'dropout': hyperparameters.get('dropout', 0.2),
             'output_size': hyperparameters.get('output_size', 2),  # remaining + ultimate
+            'fc_dropout': hyperparameters.get('fc_dropout', None),  # For v2+
         },
         
         # Training config
@@ -103,12 +110,50 @@ def save_claims_model(model, scaler, train_dataset, test_metrics, hyperparameter
 # LOADING THE MODEL
 # ============================================================================
 
-def load_claims_model(save_dir, device='cpu'):
+def list_saved_models(models_dir='models'):
+    """
+    List all saved models with their metadata
+    
+    Args:
+        models_dir: directory containing saved model folders
+    
+    Returns:
+        list of dicts with model info
+    """
+    import json
+    
+    if not os.path.exists(models_dir):
+        return []
+    
+    models = []
+    for folder in os.listdir(models_dir):
+        folder_path = os.path.join(models_dir, folder)
+        metadata_path = os.path.join(folder_path, 'metadata.json')
+        
+        if os.path.isdir(folder_path) and os.path.exists(metadata_path):
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+            
+            models.append({
+                'folder': folder,
+                'path': folder_path,
+                'timestamp': metadata.get('timestamp'),
+                'model_class': metadata['architecture'].get('model_class', 'Unknown'),
+                'input_size': metadata['architecture']['input_size'],
+                'hidden_size': metadata['architecture']['hidden_size'],
+                'num_layers': metadata['architecture']['num_layers'],
+            })
+    
+    return sorted(models, key=lambda x: x['timestamp'], reverse=True)
+
+
+def load_claims_model(save_dir, model_class, device='cpu'):
     """
     Load a complete PyTorch model with all metadata
     
     Args:
         save_dir: directory containing saved model files
+        model_class: The model class (e.g., ClaimReservingLSTM) - NOT an instance
         device: 'cpu' or 'cuda'
     
     Returns:
@@ -120,48 +165,22 @@ def load_claims_model(save_dir, device='cpu'):
     with open(f"{save_dir}/metadata.json", 'r') as f:
         metadata = json.load(f)
     
-    # 2. Recreate model architecture
-    from torch import nn
-    
-    class ClaimReservingLSTM(nn.Module):
-        def __init__(self, input_size=1, hidden_size=64, num_layers=2, dropout=0.2, output_size=2):
-            super().__init__()
-            self.hidden_size = hidden_size
-            self.num_layers = num_layers
-            
-            self.lstm = nn.LSTM(
-                input_size=input_size,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                dropout=dropout if num_layers > 1 else 0,
-                batch_first=True
-            )
-            
-            self.fc_remaining = nn.Linear(hidden_size, 1)
-            self.fc_ultimate = nn.Linear(hidden_size, 1)
-        
-        def forward(self, x, lengths):
-            from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-            
-            packed_input = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
-            packed_output, (hidden, cell) = self.lstm(packed_input)
-            output, _ = pad_packed_sequence(packed_output, batch_first=True)
-            
-            last_outputs = output[torch.arange(output.size(0)), lengths - 1]
-            
-            remaining = self.fc_remaining(last_outputs)
-            ultimate = self.fc_ultimate(last_outputs)
-            
-            return remaining, ultimate
-    
+    # 2. Recreate model architecture using provided class
     arch = metadata['architecture']
-    model = ClaimReservingLSTM(
-        input_size=arch['input_size'],
-        hidden_size=arch['hidden_size'],
-        num_layers=arch['num_layers'],
-        dropout=arch['dropout'],
-        output_size=arch['output_size']
-    )
+    
+    # Build model kwargs dynamically (handles different versions)
+    model_kwargs = {
+        'input_size': arch['input_size'],
+        'hidden_size': arch['hidden_size'],
+        'num_layers': arch['num_layers'],
+        'dropout': arch['dropout']
+    }
+    
+    # Add fc_dropout if present (for v2+)
+    if arch.get('fc_dropout') is not None:
+        model_kwargs['fc_dropout'] = arch['fc_dropout']
+    
+    model = model_class(**model_kwargs)
     
     # 3. Load model weights
     model.load_state_dict(torch.load(f"{save_dir}/model_weights.pt", map_location=device))
@@ -173,8 +192,18 @@ def load_claims_model(save_dir, device='cpu'):
         scaler = pickle.load(f)
     
     print(f"✅ Model loaded from: {save_dir}")
+    print(f"   Model class: {arch.get('model_class', 'Unknown')}")
     print(f"   Architecture: {arch['hidden_size']}-hidden, {arch['num_layers']}-layer LSTM")
-    print(f"   Performance: R²={metadata['performance'].get('r2_ultimate', 'N/A'):.3f}")
+    print(f"   Input features: {arch['input_size']}")
+    
+    # Show performance metrics if available
+    perf = metadata.get('performance', {})
+    if perf:
+        # Handle nested dict (metrics by period) or flat dict
+        if isinstance(next(iter(perf.values()), None), dict):
+            print(f"   Performance: Metrics saved by observation period")
+        else:
+            print(f"   Performance: R²={perf.get('r2_ultimate', 'N/A')}")
     
     return model, scaler, metadata
 
@@ -182,17 +211,20 @@ def load_claims_model(save_dir, device='cpu'):
 # ============================================================================
 # USAGE EXAMPLE
 # ============================================================================
-""""
+"""
+# Import the model class
+from model_architecture import ClaimReservingLSTM
+
 # After training your model:
 test_metrics = {
-    'r2_ultimate': 0.85,
-    'r2_remaining': 0.78,
-    'mae_ultimate': 5432.10,
-    'mae_remaining': 3210.45,
+    2: {'r2_ult': -0.05, 'r2_remaining': 0.15, 'mae_ult': 12000, 'mae_remaining': 8000},
+    5: {'r2_ult': 0.42, 'r2_remaining': 0.38, 'mae_ult': 8500, 'mae_remaining': 5200},
+    10: {'r2_ult': 0.78, 'r2_remaining': 0.71, 'mae_ult': 4200, 'mae_remaining': 2100},
+    # ... more periods
 }
 
 hyperparameters = {
-    'input_size': 1,
+    'input_size': 2,  # e.g., payments + reserves
     'hidden_size': 64,
     'num_layers': 2,
     'dropout': 0.2,
@@ -213,14 +245,22 @@ save_path = save_claims_model(
     model_name="lstm_claims_v1"
 )
 
-# Later, load it back
-loaded_model, loaded_scaler, loaded_metadata = load_claims_model(save_path, device='cpu')
+# Later, load it back - PASS THE CLASS, NOT AN INSTANCE
+loaded_model, loaded_scaler, loaded_metadata = load_claims_model(
+    save_path, 
+    model_class=ClaimReservingLSTM,  # ← Pass the class itself
+    device='cpu'
+)
 
-# Use for prediction
+# Use for prediction (2D features example)
 with torch.no_grad():
     observed_payments = [1000, 2000, 1500]
-    X = loaded_scaler.transform(np.array(observed_payments).reshape(-1, 1))
-    X = torch.FloatTensor(X).unsqueeze(0)
+    observed_reserves = [8000, 5000, 2000]
+    
+    # Stack features
+    X = np.column_stack([observed_payments, observed_reserves])
+    X = loaded_scaler.transform(X)
+    X = torch.FloatTensor(X).unsqueeze(0)  # [1, 3, 2]
     length = torch.LongTensor([len(observed_payments)])
     
     pred_remaining, pred_ultimate = loaded_model(X, length)
