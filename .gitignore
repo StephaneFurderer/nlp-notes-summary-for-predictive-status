@@ -1,7 +1,6 @@
 g# Data artifacts
 _data/
 _old/
-helpers/lab/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
